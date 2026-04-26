@@ -45,6 +45,111 @@ body {
   overflow: hidden;
 }
 
+.settings-dock {
+  position: fixed;
+  right: clamp(0.8rem, 2.2vw, 1.5rem);
+  bottom: clamp(0.8rem, 2.2vw, 1.5rem);
+  z-index: 35;
+  display: grid;
+  justify-items: end;
+  gap: 0.75rem;
+}
+
+.settings-toggle,
+.settings-close {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--text);
+  backdrop-filter: blur(16px);
+}
+
+.settings-toggle {
+  width: 48px;
+  height: 48px;
+  border-radius: 9999px;
+  font-size: 1.32rem;
+  line-height: 1;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 0.24);
+}
+
+.settings-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.settings-card {
+  width: min(92vw, 330px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text);
+  padding: 1rem;
+  box-shadow: 0 22px 60px rgb(0 0 0 / 0.38);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  backdrop-filter: blur(18px);
+}
+
+.settings-card.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.settings-head,
+.settings-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-head p,
+.settings-group span {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-group {
+  margin-top: 1rem;
+}
+
+.segmented-control {
+  display: flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+}
+
+.segmented-control button {
+  min-width: 58px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.48rem 0.74rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.segmented-control button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
 .room-app,
 .room-section {
   width: 100vw;

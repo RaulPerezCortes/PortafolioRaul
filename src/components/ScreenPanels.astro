@@ -4,14 +4,14 @@ import { projects, secondaryTechnologies, technologies } from '../data/portfolio
 
 <div class="screen-panel" data-panel="projects" aria-hidden="true">
   <button class="panel-close" type="button" data-close-panel aria-label="Cerrar">X</button>
-  <p class="section-eyebrow text-sm font-semibold uppercase">Proyectos</p>
-  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Bento de trabajos destacados.</h2>
+  <p class="section-eyebrow text-sm font-semibold uppercase" data-i18n="projects.eyebrow">Proyectos</p>
+  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl" data-i18n="projects.title">Bento de trabajos destacados.</h2>
   <div class="mt-8 grid auto-rows-[180px] gap-4 md:grid-cols-2">
-    {projects.map((project) => (
+    {projects.map((project, index) => (
       <article class="project-card relative overflow-hidden rounded-lg border p-6">
         <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-300 via-emerald-300 to-amber-300 opacity-80"></div>
-        <h3 class="text-2xl font-semibold tracking-tight">{project.title}</h3>
-        <p class="project-copy mt-3 max-w-sm text-sm leading-6">{project.description}</p>
+        <h3 class="text-2xl font-semibold tracking-tight" data-i18n={`projects.items.${index}.title`}>{project.title}</h3>
+        <p class="project-copy mt-3 max-w-sm text-sm leading-6" data-i18n={`projects.items.${index}.description`}>{project.description}</p>
       </article>
     ))}
   </div>
@@ -19,9 +19,9 @@ import { projects, secondaryTechnologies, technologies } from '../data/portfolio
 
 <div class="screen-panel" data-panel="tech" aria-hidden="true">
   <button class="panel-close" type="button" data-close-panel aria-label="Cerrar">X</button>
-  <p class="section-eyebrow text-sm font-semibold uppercase">Tecnologias</p>
-  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Stack para construir rapido.</h2>
-  <p class="section-copy mt-4 max-w-2xl text-base leading-7">
+  <p class="section-eyebrow text-sm font-semibold uppercase" data-i18n="tech.eyebrow">Tecnologias</p>
+  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl" data-i18n="tech.title">Stack para construir rapido.</h2>
+  <p class="section-copy mt-4 max-w-2xl text-base leading-7" data-i18n="tech.copy">
     Herramientas para interfaces, APIs, datos y experiencias web modernas.
   </p>
   <div class="tech-track mt-8 flex overflow-hidden border-y py-5">
@@ -52,14 +52,14 @@ import { projects, secondaryTechnologies, technologies } from '../data/portfolio
 
 <div class="screen-panel" data-panel="contact" aria-hidden="true">
   <button class="panel-close" type="button" data-close-panel aria-label="Cerrar">X</button>
-  <p class="section-eyebrow text-sm font-semibold uppercase">Contacto</p>
-  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Hablemos de tu proximo proyecto.</h2>
-  <p class="section-copy mt-4 max-w-2xl text-base leading-7">
+  <p class="section-eyebrow text-sm font-semibold uppercase" data-i18n="contact.eyebrow">Contacto</p>
+  <h2 class="section-title mt-3 text-4xl font-semibold tracking-tight sm:text-5xl" data-i18n="contact.title">Hablemos de tu proximo proyecto.</h2>
+  <p class="section-copy mt-4 max-w-2xl text-base leading-7" data-i18n="contact.copy">
     Estoy disponible para construir interfaces, productos web y prototipos interactivos.
   </p>
   <div class="mt-8 flex flex-wrap gap-3">
     <a class="primary-button rounded-full px-5 py-3 text-sm font-semibold transition" href="mailto:hola@example.com">hola@example.com</a>
-    <button class="secondary-button rounded-full px-5 py-3 text-sm font-semibold transition" type="button" data-open-panel="projects">Ver proyectos</button>
+    <button class="secondary-button rounded-full px-5 py-3 text-sm font-semibold transition" type="button" data-open-panel="projects" data-i18n="contact.projectsButton">Ver proyectos</button>
   </div>
 </div>
 

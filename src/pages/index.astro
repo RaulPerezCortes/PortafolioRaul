@@ -18,10 +18,39 @@ import ScreenPanels from '../components/ScreenPanels.astro';
         <canvas id="studio-canvas" aria-label="Habitacion 3D interactiva del portfolio"></canvas>
         <div class="studio-loader" data-studio-loader>Preparando estudio...</div>
 
+        <aside class="settings-dock" aria-label="Configuracion visual">
+          <button class="settings-toggle" type="button" data-settings-toggle aria-label="Abrir configuracion">
+            &#9881;
+          </button>
+          <div class="settings-card" data-settings-card>
+            <div class="settings-head">
+              <p data-i18n="settings.eyebrow">Configuracion</p>
+              <button class="settings-close" type="button" data-settings-close aria-label="Cerrar">X</button>
+            </div>
+            <div class="settings-group">
+              <span data-i18n="settings.theme">Tema</span>
+              <div class="segmented-control" role="group" aria-label="Tema">
+                <button type="button" data-theme-choice="dark" aria-pressed="true" data-i18n="settings.dark">Negro</button>
+                <button type="button" data-theme-choice="light" aria-pressed="false" data-i18n="settings.light">Blanco</button>
+              </div>
+            </div>
+            <div class="settings-group">
+              <span data-i18n="settings.language">Idioma</span>
+              <div class="segmented-control" role="group" aria-label="Idioma">
+                <button type="button" data-language-choice="es" aria-pressed="true">ES</button>
+                <button type="button" data-language-choice="en" aria-pressed="false">EN</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
         <ScreenPanels />
       </section>
     </main>
 
+    <script>
+      import '../scripts/settings';
+    </script>
     <script>
       import '../scripts/panels';
     </script>

@@ -25,3 +25,17 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+
+# vscode
+.vscode/
+
+# sistema windows
+Thumbs.db
+
+# archivos temporales
+*.tmp
+*.temp
+
+# coverage (tests)
+coverage/
