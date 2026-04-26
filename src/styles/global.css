@@ -273,6 +273,19 @@ body.content-page {
   cursor: grabbing;
 }
 
+.terminal-keyboard-proxy {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: -1;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .room-overlay {
   position: relative;
   z-index: 20;
@@ -312,26 +325,6 @@ body.content-page {
 .secondary-button:hover {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.studio-loader {
-  position: absolute;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  background: radial-gradient(circle at 50% 42%, rgb(34 211 238 / 0.18), transparent 34%), var(--surface);
-  color: var(--muted);
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: opacity 0.3s ease;
-}
-
-.studio-loader.is-hidden {
-  opacity: 0;
-  pointer-events: none;
 }
 
 .panel-backdrop {

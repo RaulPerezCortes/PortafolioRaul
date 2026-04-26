@@ -1,0 +1,23 @@
+<div class="tagcloud"></div>
+
+<script>
+  import TagCloud from 'tagcloud';
+
+  const container = '.tagcloud';
+
+  const texts = [
+    '3D', 'TagCloud', 'JavaScript',
+    'CSS3', 'Animation', 'Interactive',
+    'Mouse', 'Rolling', 'Sphere',
+    '6KB', 'v2.x',
+  ];
+
+  const options = {
+    radius: 150,
+    maxSpeed: 'fast',
+    initSpeed: 'normal',
+    keep: true,
+  };
+
+  TagCloud(container, texts, options);
+</script>

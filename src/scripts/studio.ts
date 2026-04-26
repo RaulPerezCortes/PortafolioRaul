@@ -2,17 +2,16 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#studio-canvas');
-const loader = document.querySelector<HTMLElement>('[data-studio-loader]');
 
 if (canvas) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#080a0f');
   scene.fog = new THREE.Fog('#080a0f', 8, 18);
 
-  const baseCameraFov = 58;
+  const baseCameraFov = 81.44;
   const baseViewportAspect = 16 / 10;
-  const baseCameraPosition = new THREE.Vector3(0.05, 1.78, 5.45);
-  const baseCameraTarget = new THREE.Vector3(-0.15, 1.45, -1.05);
+  const baseCameraPosition = new THREE.Vector3(2.157, 2.229, 3.581);
+  const baseCameraTarget = new THREE.Vector3(0.98, 1.384, -0.97);
   const camera = new THREE.PerspectiveCamera(baseCameraFov, 1, 0.1, 100);
   camera.position.copy(baseCameraPosition);
 
@@ -36,12 +35,13 @@ if (canvas) {
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
   controls.enableZoom = true;
+  controls.zoomToCursor = true;
   controls.zoomSpeed = 0.82;
   controls.rotateSpeed = 0.72;
   controls.minDistance = 1.7;
   controls.maxDistance = 7.2;
-  controls.maxPolarAngle = Math.PI * 0.54;
-  controls.minPolarAngle = Math.PI * 0.36;
+  controls.maxPolarAngle = Math.PI;
+  controls.minPolarAngle = 0;
   controls.minAzimuthAngle = -Infinity;
   controls.maxAzimuthAngle = Infinity;
   controls.touches.ONE = THREE.TOUCH.ROTATE;
@@ -52,6 +52,7 @@ if (canvas) {
   const textureLoader = new THREE.TextureLoader();
   const pointer = new THREE.Vector2();
   const clock = new THREE.Clock();
+  const terminalKeyboard = document.createElement('input');
   const cameraGoal = baseCameraPosition.clone();
   const targetGoal = baseCameraTarget.clone();
   const defaultCamera = baseCameraPosition.clone();
@@ -60,6 +61,8 @@ if (canvas) {
   let hoveredObject: THREE.Object3D | null = null;
   let pendingPanel: string | null = null;
   let pendingPanelAt = 0;
+  let pendingNavigationHref: string | null = null;
+  let pendingNavigationAt = 0;
   let isEnteringScreen = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
@@ -82,6 +85,15 @@ if (canvas) {
     maxZ: 6.55,
   };
   const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+
+  terminalKeyboard.className = 'terminal-keyboard-proxy';
+  terminalKeyboard.type = 'text';
+  terminalKeyboard.inputMode = 'text';
+  terminalKeyboard.autocomplete = 'off';
+  terminalKeyboard.autocapitalize = 'off';
+  terminalKeyboard.spellcheck = false;
+  terminalKeyboard.setAttribute('aria-label', 'Entrada de la terminal');
+  canvas.parentElement?.append(terminalKeyboard);
 
   const sharpenTexture = (texture: THREE.Texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -632,6 +644,37 @@ if (canvas) {
     renderTerminalTexture();
   };
 
+  const syncTerminalKeyboard = () => {
+    if (terminalKeyboard.value !== terminalInput) {
+      terminalKeyboard.value = terminalInput;
+    }
+    terminalKeyboard.setSelectionRange(terminalKeyboard.value.length, terminalKeyboard.value.length);
+  };
+
+  const focusTerminal = () => {
+    terminalFocused = true;
+    syncTerminalKeyboard();
+    terminalKeyboard.focus({ preventScroll: true });
+    renderTerminalTexture();
+  };
+
+  const blurTerminal = () => {
+    if (!terminalFocused) {
+      return;
+    }
+
+    terminalFocused = false;
+    terminalKeyboard.blur();
+    renderTerminalTexture();
+  };
+
+  const submitTerminalCommand = () => {
+    const command = terminalInput;
+    terminalInput = '';
+    syncTerminalKeyboard();
+    runTerminalCommand(command);
+  };
+
   renderTerminalTexture();
 
   const makeSlatWallTexture = () => {
@@ -686,60 +729,63 @@ if (canvas) {
     return texture;
   };
 
-  const makeConcreteFloorTexture = () => {
+  const makeParquetFloorTexture = () => {
     const textureCanvas = document.createElement('canvas');
     textureCanvas.width = 1024;
     textureCanvas.height = 512;
     const context = textureCanvas.getContext('2d');
 
     if (context) {
-      const baseGradient = context.createLinearGradient(0, 0, 1024, 512);
-      baseGradient.addColorStop(0, '#2a3036');
-      baseGradient.addColorStop(0.48, '#3a4249');
-      baseGradient.addColorStop(1, '#1f252b');
-      context.fillStyle = baseGradient;
+      context.fillStyle = '#b7a58f';
       context.fillRect(0, 0, 1024, 512);
 
-      for (let x = 0; x <= 1024; x += 256) {
-        context.strokeStyle = 'rgb(255 255 255 / 0.075)';
-        context.lineWidth = 3;
-        context.beginPath();
-        context.moveTo(x, 0);
-        context.lineTo(x, 512);
-        context.stroke();
-        context.strokeStyle = 'rgb(0 0 0 / 0.18)';
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(x + 4, 0);
-        context.lineTo(x + 4, 512);
-        context.stroke();
-      }
+      const plankHeight = 38;
+      const plankLength = 430;
+      const woodColors = ['#b6a28b', '#c2af98', '#ad9a84', '#c8b9a3', '#a99682', '#d0bea6'];
 
-      for (let y = 0; y <= 512; y += 128) {
-        context.strokeStyle = 'rgb(255 255 255 / 0.055)';
+      for (let y = 0; y < 512; y += plankHeight) {
+        const row = Math.floor(y / plankHeight);
+        const offset = (row % 4) * 108;
+
+        context.strokeStyle = 'rgb(38 20 12 / 0.62)';
         context.lineWidth = 2;
         context.beginPath();
         context.moveTo(0, y);
         context.lineTo(1024, y);
         context.stroke();
-        context.strokeStyle = 'rgb(0 0 0 / 0.16)';
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(0, y + 3);
-        context.lineTo(1024, y + 3);
-        context.stroke();
-      }
 
-      for (let i = 0; i < 220; i += 1) {
-        const alpha = 0.025 + Math.random() * 0.075;
-        context.fillStyle = Math.random() > 0.5 ? `rgb(255 255 255 / ${alpha})` : `rgb(0 0 0 / ${alpha})`;
-        context.fillRect(Math.random() * 1024, Math.random() * 512, 1 + Math.random() * 4, 1 + Math.random() * 3);
+        for (let x = -offset - plankLength; x < 1024; x += plankLength) {
+          const color = woodColors[(row + Math.floor((x + offset) / plankLength) + woodColors.length * 2) % woodColors.length];
+          const plankGradient = context.createLinearGradient(x, y, x, y + plankHeight);
+          plankGradient.addColorStop(0, color);
+          plankGradient.addColorStop(0.5, '#d8c8ad');
+          plankGradient.addColorStop(1, color);
+          context.fillStyle = plankGradient;
+          context.fillRect(x, y + 1, plankLength, plankHeight - 2);
+
+          context.strokeStyle = 'rgb(38 20 12 / 0.5)';
+          context.lineWidth = 2;
+          context.beginPath();
+          context.moveTo(x, y + 2);
+          context.lineTo(x, y + plankHeight - 2);
+          context.stroke();
+
+          for (let grain = 0; grain < 5; grain += 1) {
+            const grainY = y + 8 + grain * 6 + ((row + grain) % 3);
+            context.strokeStyle = `rgb(88 68 52 / ${0.03 + ((row + grain) % 4) * 0.008})`;
+            context.lineWidth = 1;
+            context.beginPath();
+            context.moveTo(x + 18, grainY);
+            context.bezierCurveTo(x + 120, grainY - 5, x + 260, grainY + 7, x + plankLength - 24, grainY);
+            context.stroke();
+          }
+        }
       }
 
       const varnish = context.createLinearGradient(0, 0, 1024, 512);
-      varnish.addColorStop(0, 'rgb(103 232 249 / 0.08)');
+      varnish.addColorStop(0, 'rgb(255 250 240 / 0.1)');
       varnish.addColorStop(0.58, 'rgb(255 255 255 / 0)');
-      varnish.addColorStop(1, 'rgb(0 0 0 / 0.16)');
+      varnish.addColorStop(1, 'rgb(0 0 0 / 0.18)');
       context.fillStyle = varnish;
       context.fillRect(0, 0, 1024, 512);
     }
@@ -748,7 +794,7 @@ if (canvas) {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(1.7, 2.2);
+    texture.repeat.set(1.25, 3.6);
     return texture;
   };
 
@@ -907,13 +953,14 @@ if (canvas) {
   });
 
   const materials = {
-    floor: new THREE.MeshStandardMaterial({ color: '#303840', roughness: 0.86, metalness: 0.04, map: makeConcreteFloorTexture() }),
-    wall: new THREE.MeshStandardMaterial({ color: '#2b3440', roughness: 0.82, metalness: 0.03, map: makeSlatWallTexture() }),
-    sideWall: new THREE.MeshStandardMaterial({ color: '#4a5568', roughness: 0.85 }),
+    floor: new THREE.MeshStandardMaterial({ color: '#c2ad94', roughness: 0.7, metalness: 0.02, map: makeParquetFloorTexture() }),
+    wall: new THREE.MeshStandardMaterial({ color: '#dfe9f2', roughness: 0.86, metalness: 0.02 }),
+    sideWall: new THREE.MeshStandardMaterial({ color: '#dfe9f2', roughness: 0.86, metalness: 0.02 }),
     ceiling: new THREE.MeshStandardMaterial({ color: '#0d1420', roughness: 0.88 }),
     desk: new THREE.MeshStandardMaterial({ color: '#8a5438', roughness: 0.58, metalness: 0.08 }),
     deskEdge: new THREE.MeshStandardMaterial({ color: '#4a2a1d', roughness: 0.64, metalness: 0.05 }),
     deskMat: new THREE.MeshStandardMaterial({ color: '#101827', roughness: 0.72, metalness: 0.04 }),
+    rug: new THREE.MeshStandardMaterial({ color: '#1f6f78', roughness: 0.94, metalness: 0.01 }),
     metal: new THREE.MeshStandardMaterial({ color: '#2a3441', roughness: 0.35, metalness: 0.68 }),
     cable: new THREE.MeshStandardMaterial({ color: '#020617', roughness: 0.58, metalness: 0.08 }),
     dark: new THREE.MeshStandardMaterial({ color: '#050811', roughness: 0.65, metalness: 0.15 }),
@@ -1015,6 +1062,12 @@ if (canvas) {
     }),
     paper: new THREE.MeshStandardMaterial({ color: '#f5f7fa', roughness: 0.82, metalness: 0.02 }),
     plant: new THREE.MeshStandardMaterial({ color: '#1e7e34', roughness: 0.75, metalness: 0.01 }),
+    rubikWhite: new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.58, metalness: 0.02 }),
+    rubikYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.58, metalness: 0.02 }),
+    rubikRed: new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.58, metalness: 0.02 }),
+    rubikOrange: new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.58, metalness: 0.02 }),
+    rubikBlue: new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.58, metalness: 0.02 }),
+    rubikGreen: new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.58, metalness: 0.02 }),
     glass: new THREE.MeshStandardMaterial({
       color: '#8dd9f5',
       emissive: '#38bdf8',
@@ -1128,20 +1181,23 @@ if (canvas) {
     const background = isLight ? '#e4eef7' : '#050a12';
     scene.background = new THREE.Color(background);
     scene.fog = new THREE.Fog(background, isLight ? 10 : 8.5, isLight ? 22 : 18);
-    materials.ceiling.color.set(isLight ? '#d0dce8' : '#0a0f1a');
-    materials.floor.color.set(isLight ? '#b8c3cb' : '#303840');
-    materials.wall.color.set(isLight ? '#c7d2dc' : '#2b3440');
-    materials.sideWall.color.set(isLight ? '#dfe9f2' : '#4a5568');
-    materials.floor.roughness = isLight ? 0.8 : 0.86;
-    materials.wall.roughness = isLight ? 0.78 : 0.82;
+    materials.ceiling.color.set(isLight ? '#f8fafc' : '#0a0f1a');
+    materials.floor.color.set(isLight ? '#d0bea6' : '#8f7c66');
+    const wallColor = isLight ? '#dfe9f2' : '#2b3440';
+    materials.wall.color.set(wallColor);
+    materials.sideWall.color.set(wallColor);
+    materials.floor.roughness = isLight ? 0.68 : 0.76;
+    materials.wall.roughness = isLight ? 0.86 : 0.9;
+    materials.sideWall.roughness = materials.wall.roughness;
     materials.lightModeCeiling.emissiveIntensity = isLight ? 2.8 : 0.08;
     materials.lightModeCeiling.color.set(isLight ? '#ffffff' : '#d6dde5');
     lightModeCeilingFixtures.forEach((fixture) => {
       fixture.visible = true;
     });
     lightModeCeilingLamps.forEach((lamp) => {
-      lamp.intensity = isLight ? 8.5 : 0;
-      lamp.distance = isLight ? 7.4 : 3.5;
+      lamp.intensity = isLight ? 4.8 : 0;
+      lamp.distance = isLight ? 5.8 : 3.5;
+      lamp.decay = 1.45;
     });
     
     refreshSettingsTextures();
@@ -1175,6 +1231,22 @@ if (canvas) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
+    return mesh;
+  };
+
+  const makeBoxInGroup = (
+    group: THREE.Group,
+    name: string,
+    size: THREE.Vector3Tuple,
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
     return mesh;
   };
 
@@ -1234,22 +1306,18 @@ if (canvas) {
   const floor = makeBox('floor', [8, 0.16, 10.8], [0, -0.08, 1.9], materials.floor);
   const ceiling = makeBox('ceiling', [8, 0.16, 10.8], [0, 4.55, 1.9], materials.ceiling);
   const backWall = makeBox('back-wall', [8, 4.65, 0.16], [0, 2.24, -3.05], materials.wall);
-  const leftWall = makeBox('left-wall', [0.16, 4.65, 10.8], [-4, 2.24, 1.9], materials.sideWall);
+  const leftWall = makeBox('left-wall', [0.16, 4.65, 10.8], [-4, 2.24, 1.9], materials.wall);
   const rightWall = makeBox('right-wall', [0.16, 4.65, 10.8], [4, 2.24, 1.9], materials.wall);
-  const frontLeftWall = makeBox('front-left-wall', [2.1, 4.65, 0.16], [-2.95, 2.24, 6.85], materials.sideWall);
-  const frontRightWall = makeBox('front-right-wall', [2.1, 4.65, 0.16], [2.95, 2.24, 6.85], materials.sideWall);
-  const frontCenterWall = makeBox('front-center-wall', [3.9, 3.6, 0.16], [0, 1.75, 6.85], materials.sideWall);
-  const frontTopWall = makeBox('front-top-wall', [3.9, 1.05, 0.16], [0, 4.05, 6.85], materials.sideWall);
-  
-  // Anadir moldura en el techo para mas realismo
-  makeBox('ceiling-molding-back', [8, 0.04, 0.08], [0, 4.38, -2.96], materials.metal);
-  makeBox('ceiling-molding-left', [0.08, 0.04, 10.8], [-3.96, 4.38, 1.9], materials.metal);
-  makeBox('ceiling-molding-right', [0.08, 0.04, 10.8], [3.96, 4.38, 1.9], materials.metal);
+  const frontLeftWall = makeBox('front-left-wall', [2.1, 4.65, 0.16], [-2.95, 2.24, 6.85], materials.wall);
+  const frontRightWall = makeBox('front-right-wall', [2.1, 4.65, 0.16], [2.95, 2.24, 6.85], materials.wall);
+  const frontCenterWall = makeBox('front-center-wall', [3.9, 3.6, 0.16], [0, 1.75, 6.85], materials.wall);
+  const frontTopWall = makeBox('front-top-wall', [3.9, 1.05, 0.16], [0, 4.05, 6.85], materials.wall);
+  [backWall, leftWall, rightWall, frontLeftWall, frontRightWall, frontCenterWall, frontTopWall].forEach((wallMesh) => {
+    wallMesh.receiveShadow = true;
+  });
   
   room.add(floor, ceiling, backWall, leftWall, rightWall, frontLeftWall, frontRightWall, frontCenterWall, frontTopWall);
 
-  makeBox('warm-led-strip', [7.2, 0.06, 0.08], [0, 4.2, -2.88], materials.amber);
-  makeBox('ceiling-light', [2.6, 0.06, 0.18], [-0.8, 4.42, -0.82], materials.cyanGlow);
   const terminalWall = makeWallPlane('left-wall-terminal', [8.3, 3.26], [-3.915, 2.32, 1.86], terminalMaterial);
   const terminalHover = makeWallPlane('left-wall-terminal-hover', [8.38, 3.34], [-3.912, 2.32, 1.86], materials.hover);
   const terminalHit = makeWallPlane('left-wall-terminal-hitbox', [8.52, 3.48], [-3.905, 2.32, 1.86], materials.hitbox);
@@ -1263,35 +1331,36 @@ if (canvas) {
   makeBox('terminal-frame-front', [0.04, 3.34, 0.08], [-3.9, 2.32, 6.1], materials.metal);
   terminalWall.userData.isTerminal = true;
   
-  // Vigas mejoradas
-  makeBox('ceiling-beam-left', [0.12, 0.18, 10.45], [-2.45, 4.34, 1.9], materials.metal);
-  makeBox('ceiling-beam-right', [0.12, 0.18, 10.45], [2.45, 4.34, 1.9], materials.metal);
-  makeBox('ceiling-beam-back', [7.65, 0.18, 0.12], [0, 4.34, -2.42], materials.metal);
-  makeBox('ceiling-beam-front', [7.65, 0.18, 0.12], [0, 4.34, 5.7], materials.metal);
-  
-  // Vigas laterales para mayor estructuracion
-  makeBox('ceiling-beam-left-end', [0.08, 0.12, 0.3], [-3.8, 4.36, 1.9], materials.metal);
-  makeBox('ceiling-beam-right-end', [0.08, 0.12, 0.3], [3.8, 4.36, 1.9], materials.metal);
-
   [
-    [-2.15, 4.42, 0.65],
-    [0, 4.42, 0.95],
-    [2.15, 4.42, 0.65],
+    [-2.15, 4.43, -1.22],
+    [0, 4.43, -1.22],
+    [2.15, 4.43, -1.22],
+    [-2.15, 4.43, 2.72],
+    [0, 4.43, 2.72],
+    [2.15, 4.43, 2.72],
   ].forEach((position, index) => {
     const fixture = makeBox(
       `light-mode-ceiling-panel-${index + 1}`,
-      [1.16, 0.045, 0.46],
+      [1.05, 0.04, 0.42],
       position as THREE.Vector3Tuple,
       materials.lightModeCeiling,
     );
+    fixture.castShadow = false;
     lightModeCeilingFixtures.push(fixture);
 
-    const lamp = new THREE.PointLight('#fff7d6', 0, 7.4);
+    const lamp = new THREE.PointLight('#fff7d6', 0, 5.8);
     lamp.name = `light-mode-ceiling-lamp-${index + 1}`;
-    lamp.position.set(position[0], 4.06, position[2]);
+    lamp.position.set(position[0], 3.92, position[2]);
+    lamp.castShadow = true;
+    lamp.shadow.mapSize.set(512, 512);
+    lamp.shadow.bias = -0.0012;
     scene.add(lamp);
     lightModeCeilingLamps.push(lamp);
   });
+
+  makeBox('desk-rug', [5.35, 0.035, 2.85], [0, 0.02, -0.52], materials.rug);
+  makeBox('desk-rug-front-edge', [5.15, 0.018, 0.06], [0, 0.055, 0.84], materials.cyanGlow);
+  makeBox('desk-rug-back-edge', [5.15, 0.018, 0.06], [0, 0.055, -1.88], materials.cyanGlow);
 
   makeBox('desk-top', [4.55, 0.18, 1.7], [0, 0.94, -0.55], materials.desk);
   makeBox('desk-front-edge', [4.7, 0.12, 0.08], [0, 1.03, 0.34], materials.deskEdge);
@@ -1304,42 +1373,109 @@ if (canvas) {
   makeBox('desk-right-back-leg', [0.14, 0.86, 0.14], [2.02, 0.45, -1.16], materials.metal);
   makeBox('desk-back-cable-tray', [3.55, 0.12, 0.18], [0, 0.72, -1.22], materials.cable);
   makeBox('desk-under-led', [3.2, 0.035, 0.04], [0, 0.84, 0.27], materials.cyanGlow);
-  makeBox('keyboard', [1.34, 0.08, 0.42], [-0.38, 1.08, 0.08], materials.dark);
-  makeBox('mouse-pad', [0.95, 0.025, 0.62], [0.88, 1.045, 0.11], materials.deskMat);
-  makeBox('mouse', [0.32, 0.08, 0.24], [1.1, 1.11, 0.09], materials.dark);
-  makeBox('mouse-scroll-light', [0.055, 0.02, 0.045], [1.1, 1.165, -0.02], materials.cyanGlow);
-  
-  for (let i = 0; i < 30; i += 1) {
-    makeBox(
-      `key-${i}`,
-      [0.058, 0.025, 0.052],
-      [-0.94 + (i % 10) * 0.115, 1.14, -0.05 + Math.floor(i / 10) * 0.1],
-      i % 7 === 0 ? materials.cyanGlow : materials.dark,
-    );
-  }
-  
-  // Lampara de escritorio
-  makeBox('lamp-base', [0.12, 0.08, 0.12], [-1.65, 1.0, 0.38], materials.metal);
-  makeBox('lamp-pole', [0.04, 0.6, 0.04], [-1.65, 1.3, 0.38], materials.metal);
-  makeBox('lamp-head-left', [0.08, 0.12, 0.04], [-1.85, 1.74, 0.38], materials.metal);
-  makeBox('lamp-head-right', [0.08, 0.12, 0.04], [-1.45, 1.74, 0.38], materials.metal);
-  makeBox('lamp-head-top', [0.24, 0.04, 0.12], [-1.65, 1.82, 0.38], materials.metal);
-  makeBox('lamp-light', [0.2, 0.08, 0.08], [-1.65, 1.84, 0.38], materials.cyanGlow);
+
+  const keyboardX = -0.36;
+  const keyboardZ = -0.22;
+  makeBox('keyboard-case', [1.62, 0.055, 0.52], [keyboardX, 1.075, keyboardZ], materials.dark);
+  makeBox('keyboard-back-rail', [1.5, 0.05, 0.045], [keyboardX, 1.125, keyboardZ - 0.265], materials.metal);
+  makeBox('keyboard-front-lip', [1.54, 0.026, 0.055], [keyboardX, 1.122, keyboardZ + 0.285], materials.deskMat);
+  makeBox('keyboard-accent-strip', [1.38, 0.012, 0.024], [keyboardX, 1.153, keyboardZ - 0.205], materials.cyanGlow);
+
+  const keyUnit = 0.074;
+  const keyGap = 0.008;
+  const keyHeight = 0.026;
+  const keyDepth = 0.052;
+  const keyLayoutOffsetX = -0.045;
+  const drawKey = (
+    name: string,
+    units: number,
+    x: number,
+    z: number,
+    material: THREE.Material = materials.dark,
+    depth = keyDepth,
+  ) => {
+    const width = keyUnit * units - keyGap;
+    makeBox(name, [width, keyHeight, depth], [keyboardX + keyLayoutOffsetX + x + width / 2, 1.14, keyboardZ + z], material);
+    return x + width + keyGap;
+  };
+
+  [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.85],
+    [1.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.35],
+    [1.75, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1.25, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.25],
+    [1.25, 1.25, 1.25, 6.25, 1.25, 1.25],
+  ].forEach((row, rowIndex) => {
+    const rowWidths = row as number[];
+    const totalWidth = rowWidths.reduce((total, units) => total + keyUnit * units, 0) - keyGap;
+    let x = -totalWidth / 2;
+    const z = -0.165 + rowIndex * 0.09;
+
+    rowWidths.forEach((units, keyIndex) => {
+      const isAccent = rowIndex === 0 && [0, 13].includes(keyIndex);
+      x = drawKey(
+        `keyboard-iso-key-${rowIndex}-${keyIndex}`,
+        units,
+        x,
+        z,
+        isAccent ? materials.cyanGlow : materials.dark,
+      );
+    });
+  });
+
+  makeBox('keyboard-iso-enter-vertical', [0.088, keyHeight, 0.132], [keyboardX + keyLayoutOffsetX + 0.664, 1.145, keyboardZ + 0.015], materials.dark);
+  makeBox('keyboard-iso-enter-corner', [0.158, keyHeight, 0.052], [keyboardX + keyLayoutOffsetX + 0.629, 1.148, keyboardZ + 0.06], materials.cyanGlow);
+  makeBox('keyboard-spacebar-highlight', [0.38, 0.012, 0.018], [keyboardX + keyLayoutOffsetX - 0.02, 1.157, keyboardZ + 0.196], materials.cyanGlow);
+
+  makeBox('mouse-pad', [0.82, 0.018, 0.54], [1.02, 1.045, -0.22], materials.deskMat);
+  makeBox('mouse-body', [0.28, 0.075, 0.38], [1.02, 1.105, -0.22], materials.dark);
+  makeBox('mouse-left-button', [0.12, 0.018, 0.16], [0.955, 1.153, -0.33], materials.metal);
+  makeBox('mouse-right-button', [0.12, 0.018, 0.16], [1.085, 1.153, -0.33], materials.metal);
+  makeBox('mouse-scroll-wheel', [0.038, 0.026, 0.075], [1.02, 1.168, -0.33], materials.cyanGlow);
+
+  const chairX = -0.18;
+  const chairZ = 1.02;
+  const chair = new THREE.Group();
+  chair.name = 'desk-chair';
+  chair.position.set(chairX, 0, chairZ);
+  chair.rotation.y = -0.22;
+  scene.add(chair);
+  makeBoxInGroup(chair, 'chair-seat-cushion', [1.15, 0.18, 0.95], [0, 0.66, 0], materials.dark);
+  makeBoxInGroup(chair, 'chair-seat-front-roll', [1.08, 0.12, 0.12], [0, 0.74, 0.48], materials.deskMat);
+  makeBoxInGroup(chair, 'chair-back-rest', [1.08, 1.1, 0.16], [0, 1.28, 0.42], materials.dark);
+  makeBoxInGroup(chair, 'chair-back-inner-pad', [0.86, 0.76, 0.06], [0, 1.28, 0.325], materials.deskMat);
+  makeBoxInGroup(chair, 'chair-headrest', [0.72, 0.18, 0.16], [0, 1.92, 0.42], materials.dark);
+  makeBoxInGroup(chair, 'chair-left-arm', [0.12, 0.12, 0.74], [-0.66, 0.98, 0.06], materials.metal);
+  makeBoxInGroup(chair, 'chair-right-arm', [0.12, 0.12, 0.74], [0.66, 0.98, 0.06], materials.metal);
+  makeBoxInGroup(chair, 'chair-left-arm-pad', [0.18, 0.06, 0.46], [-0.66, 1.08, 0.06], materials.dark);
+  makeBoxInGroup(chair, 'chair-right-arm-pad', [0.18, 0.06, 0.46], [0.66, 1.08, 0.06], materials.dark);
+  makeBoxInGroup(chair, 'chair-gas-lift', [0.16, 0.46, 0.16], [0, 0.35, 0], materials.metal);
+  makeBoxInGroup(chair, 'chair-base-hub', [0.32, 0.12, 0.32], [0, 0.13, 0], materials.metal);
+  [
+    [0, 0.56],
+    [0.53, 0.18],
+    [0.33, -0.46],
+    [-0.33, -0.46],
+    [-0.53, 0.18],
+  ].forEach(([x, z], index) => {
+    makeBoxInGroup(chair, `chair-star-leg-${index}`, [0.14, 0.08, 0.62], [x * 0.52, 0.12, z * 0.52], materials.metal);
+    makeBoxInGroup(chair, `chair-wheel-${index}`, [0.18, 0.12, 0.12], [x * 0.72, 0.06, z * 0.72], materials.dark);
+  });
   
   // Pequenos objetos en el escritorio
-  makeBox('pencil-cup', [0.18, 0.22, 0.18], [1.72, 1.1, -0.42], materials.metal);
-  makeBox('pencil-a', [0.035, 0.28, 0.035], [1.66, 1.24, -0.42], materials.greenGlow);
-  makeBox('pencil-b', [0.035, 0.24, 0.035], [1.73, 1.22, -0.35], materials.amber);
-  makeBox('desk-note', [0.34, 0.025, 0.22], [1.75, 1.055, 0.06], materials.amber);
-
-  makeBox('pc-case', [0.58, 1.2, 0.72], [2.35, 0.52, -0.55], materials.dark);
-  makeBox('pc-glass', [0.5, 0.92, 0.04], [2.35, 0.62, -0.16], materials.glass);
-  makeBox('pc-fan-a', [0.28, 0.28, 0.04], [2.35, 0.84, -0.12], materials.cyanGlow);
-  makeBox('pc-fan-b', [0.28, 0.28, 0.04], [2.35, 0.38, -0.12], materials.amber);
-  // Detalles adicionales de la PC
-  makeBox('pc-glow', [0.54, 0.16, 0.06], [2.35, 1.12, -0.12], materials.cyanGlow);
-  makeBox('pc-vent', [0.18, 0.32, 0.04], [2.35, 0.2, -0.14], materials.metal);
-
+  const pencilCupX = 1.82;
+  const pencilCupZ = -0.58;
+  makeBox('pencil-cup-body', [0.26, 0.28, 0.26], [pencilCupX, 1.16, pencilCupZ], materials.metal);
+  makeBox('pencil-cup-base', [0.32, 0.035, 0.32], [pencilCupX, 1.03, pencilCupZ], materials.dark);
+  [
+    [-0.07, 0.02, 0.34, materials.greenGlow],
+    [0.0, -0.06, 0.42, materials.amber],
+    [0.08, 0.04, 0.38, materials.paper],
+    [0.04, 0.09, 0.3, materials.cyanGlow],
+  ].forEach(([x, z, height, material], index) => {
+    makeBox(`pencil-${index}`, [0.028, height as number, 0.028], [pencilCupX + (x as number), 1.29 + (height as number) / 2, pencilCupZ + (z as number)], material as THREE.Material);
+    makeBox(`pencil-tip-${index}`, [0.04, 0.045, 0.04], [pencilCupX + (x as number), 1.32 + (height as number), pencilCupZ + (z as number)], materials.desk);
+  });
   const setSettingsPanelOpen = (isOpen: boolean) => {
     settingsPanelOpen = isOpen;
     refreshSettingsTextures();
@@ -1371,6 +1507,7 @@ if (canvas) {
 
     const hit = makeBox(`${key}-monitor-hitbox`, [1.86, 1.28, 0.18], [x, 1.82, -0.82], materials.hitbox);
     hit.userData.href = href;
+    hit.userData.screenX = x;
     hit.userData.hover = glow;
     interactive.push(hit);
   };
@@ -1393,22 +1530,15 @@ if (canvas) {
   
   
   const galleryX = -1.22;
-  const wallGallery = makeBackWallPlane('wall-photo-gallery', [2.92, 1.66], [galleryX, 2.82, -2.755], materials.galleryPhoto);
-  makeBox('wall-gallery-shadow', [3.26, 2.0, 0.035], [galleryX + 0.05, 2.78, -2.92], materials.dark);
-  makeBox('wall-gallery-frame-top', [3.18, 0.1, 0.12], [galleryX, 3.72, -2.82], materials.desk);
-  makeBox('wall-gallery-frame-bottom', [3.18, 0.1, 0.12], [galleryX, 1.92, -2.82], materials.desk);
-  makeBox('wall-gallery-frame-left', [0.1, 1.86, 0.12], [galleryX - 1.59, 2.82, -2.82], materials.desk);
-  makeBox('wall-gallery-frame-right', [0.1, 1.86, 0.12], [galleryX + 1.59, 2.82, -2.82], materials.desk);
-  makeBox('wall-gallery-inner-top', [2.92, 0.035, 0.06], [galleryX, 3.66, -2.72], materials.cyanGlow);
-  makeBox('wall-gallery-inner-bottom', [2.92, 0.035, 0.06], [galleryX, 1.98, -2.72], materials.cyanGlow);
-  makeBox('wall-gallery-inner-left', [0.035, 1.66, 0.06], [galleryX - 1.48, 2.82, -2.72], materials.cyanGlow);
-  makeBox('wall-gallery-inner-right', [0.035, 1.66, 0.06], [galleryX + 1.48, 2.82, -2.72], materials.cyanGlow);
-  makeBox('wall-gallery-caption-light', [1.05, 0.045, 0.05], [galleryX, 1.82, -2.76], materials.cyanGlow);
+  const galleryBoard = makeBackWallPlane('wall-gallery-wood-board', [3.28, 1.98], [galleryX, 2.82, -2.765], materials.desk);
+  const wallGallery = makeBackWallPlane('wall-photo-gallery', [3.02, 1.72], [galleryX, 2.82, -2.745], materials.galleryPhoto);
+  galleryBoard.castShadow = false;
+  galleryBoard.receiveShadow = false;
+  wallGallery.castShadow = false;
+  wallGallery.receiveShadow = false;
   wallGallery.userData.isPhotoFrame = true;
 
   makeBox('books-shelf', [2.3, 0.16, 0.52], [2.05, 3.32, -2.88], materials.desk);
-  makeBox('books-shelf-left-bracket', [0.08, 0.42, 0.08], [1.02, 3.08, -2.74], materials.metal);
-  makeBox('books-shelf-right-bracket', [0.08, 0.42, 0.08], [3.08, 3.08, -2.74], materials.metal);
   makeBox('book-a', [0.16, 0.58, 0.34], [1.26, 3.72, -2.72], materials.amber);
   makeBox('book-b', [0.16, 0.5, 0.34], [1.48, 3.68, -2.72], materials.greenGlow);
   makeBox('book-c', [0.16, 0.62, 0.34], [1.7, 3.74, -2.72], materials.cyanGlow);
@@ -1422,8 +1552,6 @@ if (canvas) {
   interactive.push(magazineHit);
 
   makeBox('toys-shelf', [1.9, 0.16, 0.52], [2.35, 2.18, -2.88], materials.desk);
-  makeBox('toys-shelf-left-bracket', [0.08, 0.38, 0.08], [1.52, 1.94, -2.74], materials.metal);
-  makeBox('toys-shelf-right-bracket', [0.08, 0.38, 0.08], [3.18, 1.94, -2.74], materials.metal);
   const registerShelfControl = (
     name: string,
     position: THREE.Vector3Tuple,
@@ -1441,10 +1569,47 @@ if (canvas) {
     return { base, face, hover, hit };
   };
 
-  registerShelfControl('shelf-theme-dark', [2.78, 2.68, -2.62], materials.settingsDark, 'settings:theme:dark');
-  registerShelfControl('shelf-theme-light', [3.1, 2.68, -2.62], materials.settingsLight, 'settings:theme:light');
-  registerShelfControl('shelf-language-es', [2.78, 2.4, -2.62], materials.settingsEs, 'settings:language:es');
-  registerShelfControl('shelf-language-en', [3.1, 2.4, -2.62], materials.settingsEn, 'settings:language:en');
+  registerShelfControl('shelf-theme-dark', [1.62, 2.68, -2.78], materials.settingsDark, 'settings:theme:dark');
+  registerShelfControl('shelf-theme-light', [1.94, 2.68, -2.78], materials.settingsLight, 'settings:theme:light');
+  registerShelfControl('shelf-language-es', [1.62, 2.4, -2.78], materials.settingsEs, 'settings:language:es');
+  registerShelfControl('shelf-language-en', [1.94, 2.4, -2.78], materials.settingsEn, 'settings:language:en');
+
+  makeBox('shelf-trophy-base', [0.34, 0.08, 0.24], [2.42, 2.31, -2.78], materials.metal);
+  makeBox('shelf-trophy-stem', [0.08, 0.24, 0.08], [2.42, 2.47, -2.78], materials.amber);
+  makeBox('shelf-trophy-cup', [0.26, 0.28, 0.18], [2.42, 2.66, -2.78], materials.amber);
+  makeBox('shelf-trophy-top-lip', [0.34, 0.045, 0.22], [2.42, 2.82, -2.78], materials.amber);
+  makeBox('shelf-trophy-left-handle', [0.055, 0.2, 0.045], [2.24, 2.66, -2.78], materials.amber);
+  makeBox('shelf-trophy-right-handle', [0.055, 0.2, 0.045], [2.6, 2.66, -2.78], materials.amber);
+
+  const rubikOrigin: THREE.Vector3Tuple = [2.9, 2.41, -2.78];
+  const rubikSize = 0.3;
+  const rubikHalf = rubikSize / 2;
+  const rubikCell = 0.082;
+  const rubikStep = 0.09;
+  const rubikFaceOffset = rubikHalf + 0.008;
+  const rubikColors = [
+    materials.rubikWhite,
+    materials.rubikYellow,
+    materials.rubikRed,
+    materials.rubikOrange,
+    materials.rubikBlue,
+    materials.rubikGreen,
+  ];
+  makeBox('rubik-body', [rubikSize, rubikSize, rubikSize], rubikOrigin, materials.dark);
+
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      const x = -rubikStep + column * rubikStep;
+      const y = rubikStep - row * rubikStep;
+      const colorIndex = row * 3 + column;
+      makeBox(`rubik-front-${row}-${column}`, [rubikCell, rubikCell, 0.012], [rubikOrigin[0] + x, rubikOrigin[1] + y, rubikOrigin[2] + rubikFaceOffset], rubikColors[colorIndex % rubikColors.length]);
+      makeBox(`rubik-back-${row}-${column}`, [rubikCell, rubikCell, 0.012], [rubikOrigin[0] - x, rubikOrigin[1] + y, rubikOrigin[2] - rubikFaceOffset], rubikColors[(colorIndex + 1) % rubikColors.length]);
+      makeBox(`rubik-right-${row}-${column}`, [0.012, rubikCell, rubikCell], [rubikOrigin[0] + rubikFaceOffset, rubikOrigin[1] + y, rubikOrigin[2] - x], rubikColors[(colorIndex + 2) % rubikColors.length]);
+      makeBox(`rubik-left-${row}-${column}`, [0.012, rubikCell, rubikCell], [rubikOrigin[0] - rubikFaceOffset, rubikOrigin[1] + y, rubikOrigin[2] + x], rubikColors[(colorIndex + 3) % rubikColors.length]);
+      makeBox(`rubik-top-${row}-${column}`, [rubikCell, 0.012, rubikCell], [rubikOrigin[0] + x, rubikOrigin[1] + rubikFaceOffset, rubikOrigin[2] + y], rubikColors[(colorIndex + 4) % rubikColors.length]);
+      makeBox(`rubik-bottom-${row}-${column}`, [rubikCell, 0.012, rubikCell], [rubikOrigin[0] + x, rubikOrigin[1] - rubikFaceOffset, rubikOrigin[2] - y], rubikColors[(colorIndex + 5) % rubikColors.length]);
+    }
+  }
 
   const monkey = new THREE.Group();
   monkey.name = 'easter-egg-monkey';
@@ -1460,34 +1625,51 @@ if (canvas) {
     material: THREE.Material,
     position: THREE.Vector3Tuple,
     scale: THREE.Vector3Tuple,
+    rotation: THREE.Vector3Tuple = [0, 0, 0],
   ) => {
     const part = new THREE.Mesh(geometry, material);
     part.position.set(...position);
+    part.rotation.set(...rotation);
     part.scale.set(...scale);
     part.castShadow = true;
     part.receiveShadow = true;
     monkey.add(part);
     return part;
   };
-  makeMonkeyPart(new THREE.SphereGeometry(0.32, 24, 16), plush, [0, 0.48, 0], [1, 1.08, 0.92]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.26, 24, 16), plush, [0, 0.9, 0], [1, 1, 0.9]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.12, 18, 12), plush, [-0.26, 0.92, 0], [1, 1, 0.75]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.12, 18, 12), plush, [0.26, 0.92, 0], [1, 1, 0.75]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.17, 18, 12), plushFace, [0, 0.84, 0.2], [1.1, 0.72, 0.42]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.034, 12, 8), plushDark, [-0.09, 0.93, 0.26], [1, 1, 1]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.034, 12, 8), plushDark, [0.09, 0.93, 0.26], [1, 1, 1]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.12, 16, 10), plush, [-0.34, 0.4, 0.02], [0.55, 1.8, 0.5]);
-  makeMonkeyPart(new THREE.SphereGeometry(0.12, 16, 10), plush, [0.34, 0.4, 0.02], [0.55, 1.8, 0.5]);
-  monkey.position.set(2.22, 2.15, -2.63);
-  monkey.rotation.y = -0.18;
-  monkey.scale.set(0.5, 0.5, 0.5);
+
+  makeMonkeyPart(new THREE.SphereGeometry(0.34, 32, 20), plush, [0, 0.58, 0], [1.05, 1.22, 0.9]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.22, 24, 16), plushFace, [0, 0.53, 0.22], [1.08, 1.28, 0.38]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.27, 32, 20), plush, [0, 1.08, 0.03], [1.02, 0.98, 0.92]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.17, 24, 14), plushFace, [0, 0.98, 0.25], [1.2, 0.74, 0.46]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 20, 14), plush, [-0.28, 1.1, 0.02], [0.9, 1, 0.68]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 20, 14), plush, [0.28, 1.1, 0.02], [0.9, 1, 0.68]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.07, 18, 12), plushFace, [-0.29, 1.1, 0.04], [0.9, 0.9, 0.45]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.07, 18, 12), plushFace, [0.29, 1.1, 0.04], [0.9, 0.9, 0.45]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.032, 14, 10), plushDark, [-0.09, 1.14, 0.27], [1, 1, 1]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.032, 14, 10), plushDark, [0.09, 1.14, 0.27], [1, 1, 1]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.022, 12, 8), plushDark, [0, 1.01, 0.33], [1.1, 0.8, 0.8]);
+  makeMonkeyPart(new THREE.BoxGeometry(0.13, 0.018, 0.018), plushDark, [0, 0.94, 0.34], [1, 1, 1]);
+  makeMonkeyPart(new THREE.CylinderGeometry(0.055, 0.07, 0.56, 18), plush, [-0.34, 0.58, 0.05], [1, 1, 1], [0.42, 0.02, 0.42]);
+  makeMonkeyPart(new THREE.CylinderGeometry(0.055, 0.07, 0.56, 18), plush, [0.34, 0.58, 0.05], [1, 1, 1], [0.42, -0.02, -0.42]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.075, 16, 10), plushFace, [-0.42, 0.26, 0.22], [1.2, 0.72, 1]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.075, 16, 10), plushFace, [0.42, 0.26, 0.22], [1.2, 0.72, 1]);
+  makeMonkeyPart(new THREE.CylinderGeometry(0.075, 0.095, 0.58, 20), plush, [-0.22, 0.18, 0.24], [1, 1, 1], [1.38, -0.1, -0.72]);
+  makeMonkeyPart(new THREE.CylinderGeometry(0.075, 0.095, 0.58, 20), plush, [0.22, 0.18, 0.24], [1, 1, 1], [1.38, 0.1, 0.72]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.105, 18, 12), plushFace, [-0.48, 0.1, 0.32], [1.34, 0.72, 0.92]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.105, 18, 12), plushFace, [0.48, 0.1, 0.32], [1.34, 0.72, 0.92]);
+  makeMonkeyPart(new THREE.TorusGeometry(0.24, 0.034, 12, 40, Math.PI * 1.35), plush, [0.34, 0.42, -0.24], [1, 1, 1], [0.28, -0.85, 1.24]);
+
+  monkey.position.set(3.62, 0.06, -2.82);
+  monkey.rotation.y = -0.96;
+  monkey.scale.set(1.08, 1.08, 1.08);
   scene.add(monkey);
-  const monkeyHit = makeBox('monkey-hitbox', [0.72, 0.86, 0.32], [2.22, 2.58, -2.28], materials.hitbox);
+  const monkeyHit = makeBox('monkey-hitbox', [0.95, 1.48, 0.66], [3.58, 0.84, -2.78], materials.hitbox);
   monkeyHit.userData.href = '/easter-egg';
   monkeyHit.userData.isMonkey = true;
   interactive.push(monkeyHit);
 
-  scene.add(new THREE.HemisphereLight('#e8f4f8', '#0a0e16', 1.35));
+  const hemisphereLight = new THREE.HemisphereLight('#e8f4f8', '#0a0e16', 1.35);
+  scene.add(hemisphereLight);
 
   const keyLight = new THREE.DirectionalLight('#ffffff', 2.8);
   keyLight.position.set(3.2, 5.8, 4.2);
@@ -1500,6 +1682,18 @@ if (canvas) {
   const fillLight = new THREE.DirectionalLight('#7dd3fc', 0.6);
   fillLight.position.set(-4, 3.2, 2);
   scene.add(fillLight);
+
+  const rightWallSoftLight = new THREE.PointLight('#dbeafe', 2.0, 5.2);
+  rightWallSoftLight.position.set(3.1, 2.55, 2.4);
+  scene.add(rightWallSoftLight);
+
+  const backWallSoftLight = new THREE.PointLight('#f8fafc', 1.45, 5.8);
+  backWallSoftLight.position.set(0.1, 3.05, -2.3);
+  scene.add(backWallSoftLight);
+
+  const leftWallSoftShadowLight = new THREE.PointLight('#bfdbfe', 1.25, 4.8);
+  leftWallSoftShadowLight.position.set(-3.35, 2.35, 3.1);
+  scene.add(leftWallSoftShadowLight);
 
   const cyanLight = new THREE.PointLight('#22d3ee', 18, 8.5);
   cyanLight.position.set(-1.5, 2.8, -1.5);
@@ -1591,6 +1785,7 @@ if (canvas) {
 
   const resetCamera = () => {
     pendingPanel = null;
+    pendingNavigationHref = null;
     isEnteringScreen = false;
     transitionStart = performance.now();
     transitionDuration = 520;
@@ -1598,6 +1793,20 @@ if (canvas) {
     transitionFromTarget.copy(controls.target);
     cameraGoal.copy(defaultCamera);
     targetGoal.copy(defaultTarget);
+  };
+
+  const enterScreenRoute = (href: string, screenX: number) => {
+    pendingPanel = null;
+    pendingNavigationHref = href;
+    controls.enabled = false;
+    isEnteringScreen = true;
+    transitionStart = performance.now();
+    transitionDuration = 760;
+    pendingNavigationAt = transitionStart + transitionDuration + 80;
+    transitionFromCamera.copy(camera.position);
+    transitionFromTarget.copy(controls.target);
+    cameraGoal.set(screenX, 1.82, -0.58);
+    targetGoal.set(screenX, 1.82, -1.06);
   };
 
   const updatePointer = (event: PointerEvent) => {
@@ -1644,13 +1853,11 @@ if (canvas) {
     const action = hit?.object.userData.action;
     if (typeof action === 'string') {
       if (action === 'terminal:focus') {
-        terminalFocused = true;
-        renderTerminalTexture();
+        focusTerminal();
         return;
       }
 
-      terminalFocused = false;
-      renderTerminalTexture();
+      blurTerminal();
 
       if (action === 'settings:toggle') {
         setSettingsPanelOpen(!settingsPanelOpen);
@@ -1670,8 +1877,12 @@ if (canvas) {
 
     const href = hit?.object.userData.href;
     if (typeof href === 'string') {
-      terminalFocused = false;
-      renderTerminalTexture();
+      blurTerminal();
+      if (typeof hit?.object.userData.screenX === 'number') {
+        enterScreenRoute(href, hit.object.userData.screenX);
+        return;
+      }
+
       window.location.href = href;
       return;
     }
@@ -1679,23 +1890,61 @@ if (canvas) {
     const target = hit?.object.userData.target;
 
     if (typeof target === 'string') {
-      terminalFocused = false;
-      renderTerminalTexture();
+      blurTerminal();
       setCameraTarget(target);
       return;
     }
+
+    blurTerminal();
   };
 
   canvas.addEventListener('pointerup', activateScreenFromPointer);
 
+  document.addEventListener('pointerdown', (event) => {
+    if (event.target === canvas || event.target === terminalKeyboard) {
+      return;
+    }
+
+    blurTerminal();
+  });
+
+  terminalKeyboard.addEventListener('input', () => {
+    terminalInput = terminalKeyboard.value.slice(0, 44);
+    syncTerminalKeyboard();
+    renderTerminalTexture();
+  });
+
+  terminalKeyboard.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      submitTerminalCommand();
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      blurTerminal();
+      event.preventDefault();
+    }
+  });
+
+  terminalKeyboard.addEventListener('blur', () => {
+    if (terminalFocused) {
+      terminalFocused = false;
+      renderTerminalTexture();
+    }
+  });
+
   window.addEventListener('keydown', (event) => {
+    if (event.target === terminalKeyboard) {
+      return;
+    }
+
     if (!terminalFocused) {
       return;
     }
 
     if (event.key === 'Escape') {
-      terminalFocused = false;
-      renderTerminalTexture();
+      blurTerminal();
       return;
     }
 
@@ -1704,15 +1953,14 @@ if (canvas) {
     }
 
     if (event.key === 'Enter') {
-      const command = terminalInput;
-      terminalInput = '';
-      runTerminalCommand(command);
+      submitTerminalCommand();
       event.preventDefault();
       return;
     }
 
     if (event.key === 'Backspace') {
       terminalInput = terminalInput.slice(0, -1);
+      syncTerminalKeyboard();
       renderTerminalTexture();
       event.preventDefault();
       return;
@@ -1720,6 +1968,7 @@ if (canvas) {
 
     if (event.key.length === 1 && terminalInput.length < 44) {
       terminalInput += event.key;
+      syncTerminalKeyboard();
       renderTerminalTexture();
       event.preventDefault();
     }
@@ -1773,9 +2022,9 @@ if (canvas) {
     plushFace.color.copy(monkeyFaceBaseColor).lerp(monkeyFaceHoverColor, monkeyHoverAmount * 0.75);
     
     // Luces dinamicas mas realistas
-    cyanLight.intensity = 16 + Math.sin(elapsed * 1.5) * 2.5;
-    amberLight.intensity = 10 + Math.sin(elapsed * 1.2) * 1.8;
-    deskKeyLight.intensity = 4.5 + Math.sin(elapsed * 0.8) * 1.2;
+    cyanLight.intensity = (currentTheme === 'light' ? 5.4 : 16) + Math.sin(elapsed * 1.5) * (currentTheme === 'light' ? 0.7 : 2.5);
+    amberLight.intensity = (currentTheme === 'light' ? 2.8 : 10) + Math.sin(elapsed * 1.2) * (currentTheme === 'light' ? 0.45 : 1.8);
+    deskKeyLight.intensity = (currentTheme === 'light' ? 2.2 : 4.5) + Math.sin(elapsed * 0.8) * (currentTheme === 'light' ? 0.45 : 1.2);
 
     if (elapsed - lastPhotoChange > 3.2) {
       photoIndex = (photoIndex + 1) % 4;
@@ -1809,9 +2058,19 @@ if (canvas) {
     controls.update();
     keepCameraInsideRoom();
 
+    if (controls.enabled && !isEnteringScreen) {
+      cameraGoal.copy(camera.position);
+      targetGoal.copy(controls.target);
+    }
+
     if (pendingPanel && performance.now() >= pendingPanelAt) {
       window.dispatchEvent(new CustomEvent('studio:open-panel', { detail: pendingPanel }));
       pendingPanel = null;
+    }
+
+    if (pendingNavigationHref && performance.now() >= pendingNavigationAt) {
+      window.location.href = pendingNavigationHref;
+      pendingNavigationHref = null;
     }
 
     renderer.render(scene, camera);
@@ -1821,6 +2080,5 @@ if (canvas) {
   window.addEventListener('resize', resize);
   window.addEventListener('studio:exit-screen', resetCamera);
   resize();
-  loader?.classList.add('is-hidden');
   animate();
 }
