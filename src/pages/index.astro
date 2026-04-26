@@ -1,0 +1,32 @@
+---
+import '../styles/global.css';
+import ScreenPanels from '../components/ScreenPanels.astro';
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>Portafolio | Desarrollador</title>
+  </head>
+  <body class="min-h-screen antialiased">
+    <main class="room-app">
+      <section class="room-section relative isolate overflow-hidden">
+        <canvas id="studio-canvas" aria-label="Habitacion 3D interactiva del portfolio"></canvas>
+        <div class="studio-loader" data-studio-loader>Preparando estudio...</div>
+
+        <ScreenPanels />
+      </section>
+    </main>
+
+    <script>
+      import '../scripts/panels';
+    </script>
+    <script>
+      import '../scripts/studio';
+    </script>
+  </body>
+</html>
