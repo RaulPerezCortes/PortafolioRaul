@@ -132,5 +132,19 @@ languageButtons.forEach((button) => {
   });
 });
 
+window.addEventListener('settings:set-theme', (event) => {
+  const theme = (event as CustomEvent<string>).detail;
+  if (theme === 'dark' || theme === 'light') {
+    setTheme(theme);
+  }
+});
+
+window.addEventListener('settings:set-language', (event) => {
+  const language = (event as CustomEvent<string>).detail;
+  if (language === 'es' || language === 'en') {
+    setLanguage(language);
+  }
+});
+
 setTheme(getInitialTheme());
 setLanguage(getInitialLanguage());

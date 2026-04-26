@@ -17,11 +17,14 @@ if (canvas) {
     antialias: true,
     alpha: false,
     powerPreference: 'high-performance',
+    precision: 'highp',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
 
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(-0.15, 1.45, -1.05);
@@ -53,8 +56,110 @@ if (canvas) {
   let pointerDownY = 0;
   let transitionStart = 0;
   let transitionDuration = 380;
+  let settingsPanelOpen = false;
+  let terminalFocused = false;
+  let terminalInput = '';
+  let lastTerminalCursorVisible = false;
+  let currentTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  let currentLanguage = document.documentElement.dataset.language === 'en' || document.documentElement.lang === 'en' ? 'en' : 'es';
   const transitionFromCamera = new THREE.Vector3();
   const transitionFromTarget = new THREE.Vector3();
+  const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+
+  const sharpenTexture = (texture: THREE.Texture) => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = maxAnisotropy;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    texture.needsUpdate = true;
+    return texture;
+  };
+
+  const makeWallControlTexture = (
+    title: string,
+    subtitle: string,
+    accent = '#22d3ee',
+    active = false,
+    icon = '',
+  ) => {
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 512;
+    textureCanvas.height = 384;
+    const context = textureCanvas.getContext('2d');
+
+    if (context) {
+      const gradient = context.createLinearGradient(0, 0, 512, 384);
+      gradient.addColorStop(0, active ? accent : '#0f172a');
+      gradient.addColorStop(1, active ? '#f8fafc' : '#172033');
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 512, 384);
+      context.strokeStyle = active ? '#f8fafc' : accent;
+      context.lineWidth = 14;
+      context.strokeRect(22, 22, 468, 340);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      if (icon) {
+        context.fillStyle = active ? '#082f49' : '#f8fafc';
+        context.font = '900 118px Arial';
+        context.fillText(icon, 256, 142);
+        context.fillStyle = active ? '#0f172a' : accent;
+        context.font = '900 42px Arial';
+        context.fillText(title, 256, 278);
+      } else {
+        context.fillStyle = active ? '#0f172a' : accent;
+        context.font = '900 34px Arial';
+        context.fillText(subtitle, 256, 104);
+        context.fillStyle = active ? '#082f49' : '#f8fafc';
+        context.font = '900 66px Arial';
+        context.fillText(title, 256, 218);
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  };
+
+  const makeRoundToolTexture = (active = false, accent = '#67e8f9') => {
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 512;
+    textureCanvas.height = 512;
+    const context = textureCanvas.getContext('2d');
+
+    if (context) {
+      context.clearRect(0, 0, 512, 512);
+      context.fillStyle = active ? accent : '#0f172a';
+      context.beginPath();
+      context.arc(256, 256, 220, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = active ? '#f8fafc' : accent;
+      context.lineWidth = 18;
+      context.stroke();
+
+      context.save();
+      context.translate(256, 256);
+      for (let i = 0; i < 8; i += 1) {
+        context.rotate(Math.PI / 4);
+        context.fillStyle = active ? '#0f172a' : '#f8fafc';
+        context.fillRect(-22, -168, 44, 66);
+      }
+      context.restore();
+
+      context.fillStyle = active ? '#0f172a' : '#f8fafc';
+      context.beginPath();
+      context.arc(256, 256, 104, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = active ? accent : '#0f172a';
+      context.beginPath();
+      context.arc(256, 256, 42, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  };
 
   const makeScreenTexture = (title: string, subtitle: string, accent = '#22d3ee') => {
     const textureCanvas = document.createElement('canvas');
@@ -90,30 +195,237 @@ if (canvas) {
     return texture;
   };
 
-  const makeBrickTexture = () => {
+  const terminalCanvas = document.createElement('canvas');
+  terminalCanvas.width = 2048;
+  terminalCanvas.height = 1536;
+  const terminalContext = terminalCanvas.getContext('2d');
+  const terminalLines = [
+    'raul@portfolio:~$ help',
+    'Comandos disponibles:',
+    '  help             Lista comandos',
+    '  sobre-mi         Abre descripcion, curriculum y contacto',
+    '  portfolio        Abre experiencia, proyectos y skills',
+    '  blog             Abre DEV NOTES',
+    '  juego            Abre el easter egg',
+    '  theme dark/light Cambia el tema',
+    '  lang es/en       Cambia el idioma',
+    '  whoami           Muestra una descripcion breve',
+    '  skills           Lista tecnologias',
+    '  clear            Limpia la terminal',
+  ];
+
+  const terminalTexture = new THREE.CanvasTexture(terminalCanvas);
+  terminalTexture.colorSpace = THREE.SRGBColorSpace;
+  terminalTexture.anisotropy = maxAnisotropy;
+  terminalTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  terminalTexture.magFilter = THREE.LinearFilter;
+
+  const renderTerminalTexture = () => {
+    if (!terminalContext) {
+      return;
+    }
+
+    const cursorVisible = terminalFocused && Math.floor(performance.now() / 520) % 2 === 0;
+    terminalContext.fillStyle = '#020617';
+    terminalContext.fillRect(0, 0, terminalCanvas.width, terminalCanvas.height);
+
+    const gradient = terminalContext.createLinearGradient(0, 0, terminalCanvas.width, terminalCanvas.height);
+    gradient.addColorStop(0, 'rgb(34 211 238 / 0.16)');
+    gradient.addColorStop(0.55, 'rgb(15 23 42 / 0)');
+    gradient.addColorStop(1, 'rgb(245 158 11 / 0.12)');
+    terminalContext.fillStyle = gradient;
+    terminalContext.fillRect(0, 0, terminalCanvas.width, terminalCanvas.height);
+
+    terminalContext.strokeStyle = terminalFocused ? '#67e8f9' : '#1f9eb5';
+    terminalContext.lineWidth = 18;
+    terminalContext.strokeRect(44, 44, terminalCanvas.width - 88, terminalCanvas.height - 88);
+    terminalContext.fillStyle = '#07111f';
+    terminalContext.fillRect(72, 72, terminalCanvas.width - 144, 98);
+    terminalContext.fillStyle = '#67e8f9';
+    terminalContext.font = '700 64px Consolas, monospace';
+    terminalContext.textBaseline = 'top';
+    terminalContext.fillText('LEFT-WALL TERMINAL', 440, 98);
+    terminalContext.fillStyle = terminalFocused ? '#f59e0b' : '#64748b';
+    terminalContext.font = '700 42px Consolas, monospace';
+    terminalContext.fillText(terminalFocused ? 'ONLINE / ESCRIBIENDO' : 'CLICK PARA ESCRIBIR', 1220, 112);
+
+    terminalContext.font = '700 58px Consolas, monospace';
+    const visibleLines = terminalLines.slice(-14);
+    visibleLines.forEach((line, index) => {
+      const y = 238 + index * 74;
+      const isPrompt = line.startsWith('raul@portfolio');
+      terminalContext.fillStyle = isPrompt ? '#67e8f9' : line.startsWith('  ') ? '#cbd5e1' : '#f8fafc';
+      terminalContext.fillText(line, 440, y);
+    });
+
+    terminalContext.fillStyle = '#67e8f9';
+    const prompt = `raul@portfolio:~$ ${terminalInput}${cursorVisible ? '_' : ''}`;
+    terminalContext.fillText(prompt, 440, terminalCanvas.height - 130);
+
+    for (let y = 0; y < terminalCanvas.height; y += 10) {
+      terminalContext.fillStyle = 'rgb(255 255 255 / 0.025)';
+      terminalContext.fillRect(0, y, terminalCanvas.width, 1);
+    }
+
+    terminalTexture.needsUpdate = true;
+  };
+
+  const terminalMaterial = new THREE.MeshBasicMaterial({
+    color: '#ffffff',
+    map: terminalTexture,
+    side: THREE.DoubleSide,
+  });
+
+  const pushTerminalLine = (line: string) => {
+    terminalLines.push(line);
+    renderTerminalTexture();
+  };
+
+  const runTerminalCommand = (rawCommand: string) => {
+    const command = rawCommand.trim().toLowerCase();
+    terminalLines.push(`raul@portfolio:~$ ${rawCommand}`);
+
+    const openRoute = (route: string, label: string) => {
+      terminalLines.push(`Abriendo ${label}...`);
+      renderTerminalTexture();
+      window.location.href = route;
+    };
+
+    if (!command) {
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'help') {
+      terminalLines.push('Comandos disponibles:');
+      terminalLines.push('  help             Lista comandos');
+      terminalLines.push('  sobre-mi         Abre descripcion, curriculum y contacto');
+      terminalLines.push('  portfolio        Abre experiencia, proyectos y skills');
+      terminalLines.push('  blog             Abre DEV NOTES');
+      terminalLines.push('  juego            Abre el easter egg');
+      terminalLines.push('  theme dark/light Cambia el tema');
+      terminalLines.push('  lang es/en       Cambia el idioma');
+      terminalLines.push('  whoami           Muestra una descripcion breve');
+      terminalLines.push('  skills           Lista tecnologias');
+      terminalLines.push('  clear            Limpia la terminal');
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'clear') {
+      terminalLines.splice(0, terminalLines.length, 'Terminal limpia. Escribe help para ver comandos.');
+      renderTerminalTexture();
+      return;
+    }
+
+    if (['sobre-mi', 'about', 'mi'].includes(command)) {
+      openRoute('/sobre-mi', 'Sobre mi');
+      return;
+    }
+
+    if (['portfolio', 'proyectos'].includes(command)) {
+      openRoute('/portfolio', 'Portfolio');
+      return;
+    }
+
+    if (['blog', 'dev-notes', 'notes'].includes(command)) {
+      openRoute('/blog', 'DEV NOTES');
+      return;
+    }
+
+    if (['juego', 'easter', 'easter-egg'].includes(command)) {
+      openRoute('/easter-egg', 'Easter egg');
+      return;
+    }
+
+    if (['home', 'inicio'].includes(command)) {
+      openRoute('/', 'inicio');
+      return;
+    }
+
+    if (command === 'theme dark' || command === 'tema negro') {
+      terminalLines.push('Tema cambiado a negro.');
+      window.dispatchEvent(new CustomEvent('settings:set-theme', { detail: 'dark' }));
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'theme light' || command === 'tema blanco') {
+      terminalLines.push('Tema cambiado a blanco.');
+      window.dispatchEvent(new CustomEvent('settings:set-theme', { detail: 'light' }));
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'lang es' || command === 'idioma es') {
+      terminalLines.push('Idioma cambiado a espanol.');
+      window.dispatchEvent(new CustomEvent('settings:set-language', { detail: 'es' }));
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'lang en' || command === 'idioma en') {
+      terminalLines.push('Language changed to English.');
+      window.dispatchEvent(new CustomEvent('settings:set-language', { detail: 'en' }));
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'whoami') {
+      terminalLines.push('Desarrollador frontend orientado a interfaces limpias,');
+      terminalLines.push('experiencias interactivas y productos web con detalle visual.');
+      renderTerminalTexture();
+      return;
+    }
+
+    if (command === 'skills') {
+      terminalLines.push('Stack: Astro, TypeScript, Three.js, HTML, CSS, UI/UX, Git.');
+      renderTerminalTexture();
+      return;
+    }
+
+    terminalLines.push(`Comando no encontrado: ${rawCommand}`);
+    terminalLines.push('Escribe help para ver los comandos disponibles.');
+    renderTerminalTexture();
+  };
+
+  renderTerminalTexture();
+
+  const makeAcousticWallTexture = () => {
     const textureCanvas = document.createElement('canvas');
     textureCanvas.width = 1024;
     textureCanvas.height = 512;
     const context = textureCanvas.getContext('2d');
 
     if (context) {
-      context.fillStyle = '#7a3329';
+      const baseGradient = context.createLinearGradient(0, 0, 1024, 512);
+      baseGradient.addColorStop(0, '#233044');
+      baseGradient.addColorStop(0.55, '#334155');
+      baseGradient.addColorStop(1, '#172033');
+      context.fillStyle = baseGradient;
       context.fillRect(0, 0, textureCanvas.width, textureCanvas.height);
-      for (let y = 0; y < 512; y += 64) {
-        const offset = (y / 64) % 2 === 0 ? 0 : 96;
-        for (let x = -offset; x < 1024; x += 192) {
-          const brickGradient = context.createLinearGradient(x, y, x + 192, y + 64);
-          brickGradient.addColorStop(0, '#9f4b39');
-          brickGradient.addColorStop(0.58, '#743327');
-          brickGradient.addColorStop(1, '#b25c45');
-          context.fillStyle = brickGradient;
-          context.fillRect(x + 4, y + 4, 184, 56);
-          context.strokeStyle = '#3f1f1a';
-          context.lineWidth = 5;
-          context.strokeRect(x + 4, y + 4, 184, 56);
+
+      // Crear patrón de textura acústica más realista
+      for (let x = 0; x < 1024; x += 12) {
+        for (let y = 0; y < 512; y += 12) {
+          const noise = Math.random();
+          context.fillStyle = `rgb(255 255 255 / ${noise * 0.15})`;
+          context.fillRect(x, y, 8 + noise * 4, 8 + noise * 4);
         }
       }
-      context.fillStyle = 'rgb(0 0 0 / 0.18)';
+
+      // Añadir líneas horizontales para más realismo
+      for (let y = 0; y < 512; y += 48) {
+        const lineGradient = context.createLinearGradient(0, y, 1024, y);
+        lineGradient.addColorStop(0, 'rgb(255 255 255 / 0.12)');
+        lineGradient.addColorStop(0.5, 'rgb(255 255 255 / 0.06)');
+        lineGradient.addColorStop(1, 'rgb(0 0 0 / 0.12)');
+        context.fillStyle = lineGradient;
+        context.fillRect(0, y, 1024, 2);
+      }
+
+      // Añadir sombreado para profundidad
+      context.fillStyle = 'rgb(0 0 0 / 0.22)';
       context.fillRect(0, 0, 1024, 512);
     }
 
@@ -121,7 +433,7 @@ if (canvas) {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(2.2, 2);
+    texture.repeat.set(1.5, 1.2);
     return texture;
   };
 
@@ -134,31 +446,61 @@ if (canvas) {
     if (context) {
       context.fillStyle = '#6b3f2a';
       context.fillRect(0, 0, 1024, 512);
+      
+      // Crear planchas de madera más realistas
       for (let x = 0; x < 1024; x += 128) {
         const plank = context.createLinearGradient(x, 0, x + 128, 0);
         plank.addColorStop(0, '#4d2c1d');
+        plank.addColorStop(0.3, '#7a4d2a');
         plank.addColorStop(0.5, '#8a5435');
+        plank.addColorStop(0.7, '#6b3f2a');
         plank.addColorStop(1, '#5b3422');
         context.fillStyle = plank;
         context.fillRect(x, 0, 122, 512);
+        
+        // Borde de la plancha con más realismo
         context.strokeStyle = '#2f1b12';
-        context.lineWidth = 5;
-        context.strokeRect(x, 0, 122, 512);
-        for (let y = 16; y < 512; y += 28) {
-          context.strokeStyle = 'rgb(255 255 255 / 0.05)';
+        context.lineWidth = 6;
+        context.strokeRect(x + 1, 1, 120, 510);
+        
+        // Vetas de madera más detalladas
+        for (let y = 16; y < 512; y += 32) {
+          context.strokeStyle = 'rgb(255 255 255 / 0.12)';
+          context.lineWidth = 1.5;
           context.beginPath();
-          context.moveTo(x + 12, y + Math.sin(y) * 4);
-          context.bezierCurveTo(x + 42, y + 10, x + 82, y - 12, x + 116, y + 2);
+          context.moveTo(x + 8, y);
+          context.quadraticCurveTo(x + 42, y + Math.random() * 6 - 3, x + 116, y + 4);
+          context.stroke();
+          
+          context.strokeStyle = 'rgb(0 0 0 / 0.08)';
+          context.lineWidth = 1;
+          context.beginPath();
+          context.moveTo(x + 10, y + 2);
+          context.quadraticCurveTo(x + 44, y + Math.random() * 4 - 2, x + 114, y + 6);
           context.stroke();
         }
+        
+        // Pequeñas imperfecciones
+        for (let i = 0; i < 8; i += 1) {
+          context.fillStyle = `rgb(0 0 0 / ${Math.random() * 0.15})`;
+          context.fillRect(x + Math.random() * 120, Math.random() * 512, 2 + Math.random() * 2, 1 + Math.random());
+        }
       }
+      
+      // Añadir barniz/brillo
+      const varnish = context.createLinearGradient(0, 0, 0, 512);
+      varnish.addColorStop(0, 'rgb(255 255 255 / 0.06)');
+      varnish.addColorStop(0.5, 'rgb(255 255 255 / 0)');
+      varnish.addColorStop(1, 'rgb(255 255 255 / 0.04)');
+      context.fillStyle = varnish;
+      context.fillRect(0, 0, 1024, 512);
     }
 
     const texture = new THREE.CanvasTexture(textureCanvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(2, 2);
+    texture.repeat.set(2.2, 2.4);
     return texture;
   };
 
@@ -210,8 +552,8 @@ if (canvas) {
 
   const makePhotoTexture = (index: number) => {
     const textureCanvas = document.createElement('canvas');
-    textureCanvas.width = 768;
-    textureCanvas.height = 512;
+    textureCanvas.width = 1536;
+    textureCanvas.height = 1024;
     const context = textureCanvas.getContext('2d');
     const palettes = [
       ['#0f172a', '#22d3ee', '#f8fafc'],
@@ -222,23 +564,85 @@ if (canvas) {
     const palette = palettes[index % palettes.length];
 
     if (context) {
+      context.scale(2, 2);
       const gradient = context.createLinearGradient(0, 0, 768, 512);
       gradient.addColorStop(0, palette[0]);
       gradient.addColorStop(1, palette[1]);
       context.fillStyle = gradient;
       context.fillRect(0, 0, 768, 512);
-      context.fillStyle = 'rgb(255 255 255 / 0.92)';
-      context.fillRect(42, 42, 684, 428);
-      context.fillStyle = palette[0];
+      context.fillStyle = '#0f172a';
+      context.fillRect(38, 38, 692, 436);
+      const sky = context.createLinearGradient(0, 54, 0, 320);
+      sky.addColorStop(0, palette[1]);
+      sky.addColorStop(0.58, palette[0]);
+      sky.addColorStop(1, '#020617');
+      context.fillStyle = sky;
       context.fillRect(66, 66, 636, 338);
-      context.fillStyle = palette[1];
+      context.fillStyle = 'rgb(255 255 255 / 0.8)';
       context.beginPath();
-      context.arc(384, 204, 88, 0, Math.PI * 2);
+      context.arc(570, 128, 42, 0, Math.PI * 2);
       context.fill();
+      context.fillStyle = '#111827';
+      context.beginPath();
+      context.moveTo(66, 404);
+      context.lineTo(246, 206);
+      context.lineTo(384, 404);
+      context.closePath();
+      context.fill();
+      context.fillStyle = '#1f2937';
+      context.beginPath();
+      context.moveTo(260, 404);
+      context.lineTo(448, 176);
+      context.lineTo(702, 404);
+      context.closePath();
+      context.fill();
+      context.fillStyle = palette[1];
+      context.globalAlpha = 0.36;
+      context.fillRect(66, 332, 636, 72);
+      context.globalAlpha = 1;
       context.fillStyle = palette[2];
-      context.font = '900 46px Arial';
+      for (let i = 0; i < 4; i += 1) {
+        context.beginPath();
+        context.arc(336 + i * 32, 444, 8, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    return sharpenTexture(texture);
+  };
+
+  const makeMagazineTexture = () => {
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 512;
+    textureCanvas.height = 768;
+    const context = textureCanvas.getContext('2d');
+
+    if (context) {
+      const gradient = context.createLinearGradient(0, 0, 512, 768);
+      gradient.addColorStop(0, '#111827');
+      gradient.addColorStop(0.58, '#1e293b');
+      gradient.addColorStop(1, '#0f172a');
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 512, 768);
+      context.strokeStyle = '#f59e0b';
+      context.lineWidth = 18;
+      context.strokeRect(26, 26, 460, 716);
+      context.fillStyle = '#f8fafc';
+      context.font = '900 82px Arial';
       context.textAlign = 'center';
-      context.fillText(`FOTO ${index + 1}`, 384, 442);
+      context.fillText('DEV', 256, 180);
+      context.fillText('NOTES', 256, 270);
+      context.fillStyle = '#f59e0b';
+      context.font = '900 38px Arial';
+      context.fillText('BLOG', 256, 350);
+      context.fillStyle = '#cbd5e1';
+      context.font = '700 30px Arial';
+      context.fillText('Historias, ideas', 256, 458);
+      context.fillText('y codigo', 256, 502);
+      context.fillStyle = '#22d3ee';
+      context.font = '900 46px Arial';
+      context.fillText('#12', 256, 650);
     }
 
     const texture = new THREE.CanvasTexture(textureCanvas);
@@ -255,38 +659,120 @@ if (canvas) {
   });
 
   const materials = {
-    floor: new THREE.MeshStandardMaterial({ color: '#7c4a2d', roughness: 0.68, metalness: 0.04, map: makeWoodTexture() }),
-    wall: new THREE.MeshStandardMaterial({ color: '#9f4b39', roughness: 0.84, map: makeBrickTexture() }),
-    sideWall: new THREE.MeshStandardMaterial({ color: '#a06b67', roughness: 0.84 }),
-    ceiling: new THREE.MeshStandardMaterial({ color: '#101827', roughness: 0.86 }),
-    desk: new THREE.MeshStandardMaterial({ color: '#7c4a2d', roughness: 0.62 }),
-    metal: new THREE.MeshStandardMaterial({ color: '#1f2937', roughness: 0.42, metalness: 0.36 }),
-    dark: new THREE.MeshStandardMaterial({ color: '#070b12', roughness: 0.58 }),
-    projectsScreen: makeScreenMaterial('PROYECTOS', 'ABRIR PANTALLA', '#22d3ee'),
-    techScreen: makeScreenMaterial('TECNOLOGIAS', 'ABRIR STACK', '#34d399'),
+    floor: new THREE.MeshStandardMaterial({ color: '#7c4a2d', roughness: 0.72, metalness: 0.02, map: makeWoodTexture() }),
+    wall: new THREE.MeshStandardMaterial({ color: '#3a4655', roughness: 0.88, map: makeAcousticWallTexture() }),
+    sideWall: new THREE.MeshStandardMaterial({ color: '#4a5568', roughness: 0.85 }),
+    ceiling: new THREE.MeshStandardMaterial({ color: '#0d1420', roughness: 0.88 }),
+    desk: new THREE.MeshStandardMaterial({ color: '#8a5438', roughness: 0.58, metalness: 0.08 }),
+    deskEdge: new THREE.MeshStandardMaterial({ color: '#4a2a1d', roughness: 0.64, metalness: 0.05 }),
+    deskMat: new THREE.MeshStandardMaterial({ color: '#101827', roughness: 0.72, metalness: 0.04 }),
+    metal: new THREE.MeshStandardMaterial({ color: '#2a3441', roughness: 0.35, metalness: 0.68 }),
+    cable: new THREE.MeshStandardMaterial({ color: '#020617', roughness: 0.58, metalness: 0.08 }),
+    dark: new THREE.MeshStandardMaterial({ color: '#050811', roughness: 0.65, metalness: 0.15 }),
+    projectsScreen: makeScreenMaterial('SOBRE MI', 'DESCRIPCION / CV / CONTACTO', '#22d3ee'),
+    techScreen: makeScreenMaterial('PORTFOLIO', 'EXPERIENCIA / PROYECTOS / SKILLS', '#a855f7'),
     contactScreen: makeScreenMaterial('CONTACTO', 'ENVIAR EMAIL', '#f59e0b'),
-    amber: new THREE.MeshStandardMaterial({
-      color: '#b45309',
-      emissive: '#f59e0b',
-      emissiveIntensity: 1.7,
-      roughness: 0.35,
-    }),
-    paper: new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.8 }),
-    plant: new THREE.MeshStandardMaterial({ color: '#22c55e', roughness: 0.7 }),
-    bedding: new THREE.MeshStandardMaterial({ color: '#c7b6a5', roughness: 0.88 }),
-    blanket: new THREE.MeshStandardMaterial({ color: '#3f3a36', roughness: 0.82 }),
-    pillow: new THREE.MeshStandardMaterial({ color: '#f2eee8', roughness: 0.78 }),
-    glass: new THREE.MeshStandardMaterial({
-      color: '#9bdcff',
-      emissive: '#38bdf8',
-      emissiveIntensity: 0.28,
-      roughness: 0.1,
-      metalness: 0.05,
+    settingsToggle: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.82,
+      map: makeRoundToolTexture(),
+      roughness: 0.22,
+      metalness: 0.08,
       transparent: true,
-      opacity: 0.68,
     }),
-    cork: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7, map: makeCorkTexture() }),
-    photoFrame: new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.36, map: makePhotoTexture(0), roughness: 0.32 }),
+    settingsHeader: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.6,
+      map: makeWallControlTexture('CONFIG', 'AJUSTES', '#67e8f9'),
+      roughness: 0.28,
+      metalness: 0.04,
+    }),
+    settingsDark: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.52,
+      map: makeWallControlTexture('NEGRO', 'TEMA', '#67e8f9', currentTheme === 'dark'),
+      roughness: 0.3,
+      metalness: 0.04,
+    }),
+    settingsLight: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.52,
+      map: makeWallControlTexture('BLANCO', 'TEMA', '#67e8f9', currentTheme === 'light'),
+      roughness: 0.3,
+      metalness: 0.04,
+    }),
+    settingsEs: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.52,
+      map: makeWallControlTexture('ES', 'IDIOMA', '#67e8f9', currentLanguage === 'es'),
+      roughness: 0.3,
+      metalness: 0.04,
+    }),
+    settingsEn: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.52,
+      map: makeWallControlTexture('EN', 'LANG', '#67e8f9', currentLanguage === 'en'),
+      roughness: 0.3,
+      metalness: 0.04,
+    }),
+    settingsThemeLabel: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.4,
+      map: makeWallControlTexture('TEMAS', '', '#67e8f9'),
+      roughness: 0.38,
+      metalness: 0.02,
+    }),
+    settingsLanguageLabel: new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      emissive: '#67e8f9',
+      emissiveIntensity: 0.4,
+      map: makeWallControlTexture('IDIOMA', '', '#67e8f9'),
+      roughness: 0.38,
+      metalness: 0.02,
+    }),
+    cyanGlow: new THREE.MeshStandardMaterial({
+      color: '#0f3d4d',
+      emissive: '#22d3ee',
+      emissiveIntensity: 1.4,
+      roughness: 0.32,
+      metalness: 0.1,
+    }),
+    greenGlow: new THREE.MeshStandardMaterial({
+      color: '#0d3b1f',
+      emissive: '#34d399',
+      emissiveIntensity: 1.15,
+      roughness: 0.4,
+      metalness: 0.08,
+    }),
+    amber: new THREE.MeshStandardMaterial({
+      color: '#8a3f0a',
+      emissive: '#f59e0b',
+      emissiveIntensity: 1.8,
+      roughness: 0.32,
+      metalness: 0.05,
+    }),
+    paper: new THREE.MeshStandardMaterial({ color: '#f5f7fa', roughness: 0.82, metalness: 0.02 }),
+    plant: new THREE.MeshStandardMaterial({ color: '#1e7e34', roughness: 0.75, metalness: 0.01 }),
+    glass: new THREE.MeshStandardMaterial({
+      color: '#8dd9f5',
+      emissive: '#38bdf8',
+      emissiveIntensity: 0.32,
+      roughness: 0.08,
+      metalness: 0.02,
+      transparent: true,
+      opacity: 0.72,
+    }),
+    cork: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.72, map: makeCorkTexture(), metalness: 0.01 }),
+    photoFrame: new THREE.MeshBasicMaterial({ color: '#ffffff', map: makePhotoTexture(0) }),
+    galleryPhoto: new THREE.MeshBasicMaterial({ color: '#ffffff', map: makePhotoTexture(1) }),
+    magazine: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.48, map: makeMagazineTexture(), metalness: 0.02 }),
     hitbox: new THREE.MeshBasicMaterial({
       color: '#ffffff',
       transparent: true,
@@ -294,23 +780,24 @@ if (canvas) {
       depthWrite: false,
     }),
     hover: new THREE.MeshBasicMaterial({
-      color: '#ffffff',
+      color: '#67e8f9',
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.09,
       depthWrite: false,
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     }),
   };
 
   const screenCopy = {
     es: {
-      projects: ['PROYECTOS', 'ABRIR PANTALLA'],
-      tech: ['TECNOLOGIAS', 'ABRIR STACK'],
+      projects: ['SOBRE MI', 'DESCRIPCION / CV / CONTACTO'],
+      tech: ['PORTFOLIO', 'EXPERIENCIA / PROYECTOS / SKILLS'],
       contact: ['CONTACTO', 'ENVIAR EMAIL'],
     },
     en: {
-      projects: ['PROJECTS', 'OPEN SCREEN'],
-      tech: ['TECH STACK', 'OPEN STACK'],
+      projects: ['ABOUT ME', 'DESCRIPTION / RESUME / CONTACT'],
+      tech: ['PORTFOLIO', 'EXPERIENCE / PROJECTS / SKILLS'],
       contact: ['CONTACT', 'SEND EMAIL'],
     },
   } as const;
@@ -326,20 +813,59 @@ if (canvas) {
     material.needsUpdate = true;
   };
 
+  const setWallControlTexture = (
+    material: THREE.MeshStandardMaterial,
+    title: string,
+    subtitle: string,
+    active = false,
+    icon = '',
+  ) => {
+    material.map?.dispose();
+    material.map = makeWallControlTexture(title, subtitle, '#67e8f9', active, icon);
+    material.needsUpdate = true;
+  };
+
+  const refreshSettingsTextures = () => {
+    const isEnglish = currentLanguage === 'en';
+    materials.settingsToggle.map?.dispose();
+    materials.settingsToggle.map = makeRoundToolTexture(settingsPanelOpen);
+    materials.settingsToggle.needsUpdate = true;
+    setWallControlTexture(materials.settingsHeader, isEnglish ? 'SETTINGS' : 'CONFIG', isEnglish ? 'OPTIONS' : 'AJUSTES');
+    setWallControlTexture(materials.settingsDark, isEnglish ? 'BLACK' : 'NEGRO', isEnglish ? 'THEME' : 'TEMA', currentTheme === 'dark');
+    setWallControlTexture(materials.settingsLight, isEnglish ? 'WHITE' : 'BLANCO', isEnglish ? 'THEME' : 'TEMA', currentTheme === 'light');
+    setWallControlTexture(materials.settingsEs, 'ES', isEnglish ? 'LANG' : 'IDIOMA', currentLanguage === 'es');
+    setWallControlTexture(materials.settingsEn, 'EN', isEnglish ? 'LANG' : 'IDIOMA', currentLanguage === 'en');
+    setWallControlTexture(materials.settingsThemeLabel, isEnglish ? 'THEMES' : 'TEMAS', '');
+    setWallControlTexture(materials.settingsLanguageLabel, isEnglish ? 'LANGUAGE' : 'IDIOMA', '');
+  };
+
   const applyStudioLanguage = (language: string) => {
+    currentLanguage = language === 'en' ? 'en' : 'es';
     const copy = language === 'en' ? screenCopy.en : screenCopy.es;
     setScreenTexture(materials.projectsScreen, copy.projects[0], copy.projects[1], '#22d3ee');
-    setScreenTexture(materials.techScreen, copy.tech[0], copy.tech[1], '#34d399');
+    setScreenTexture(materials.techScreen, copy.tech[0], copy.tech[1], '#a855f7');
     setScreenTexture(materials.contactScreen, copy.contact[0], copy.contact[1], '#f59e0b');
+    refreshSettingsTextures();
   };
 
   const applyStudioTheme = (theme: string) => {
+    currentTheme = theme === 'light' ? 'light' : 'dark';
     const isLight = theme === 'light';
-    const background = isLight ? '#e8edf2' : '#080a0f';
+    const background = isLight ? '#e4eef7' : '#050a12';
     scene.background = new THREE.Color(background);
-    scene.fog = new THREE.Fog(background, isLight ? 9 : 8, isLight ? 20 : 18);
-    materials.ceiling.color.set(isLight ? '#d7dde5' : '#101827');
-    materials.sideWall.color.set(isLight ? '#d9a7a1' : '#a06b67');
+    scene.fog = new THREE.Fog(background, isLight ? 10 : 8.5, isLight ? 22 : 18);
+    materials.ceiling.color.set(isLight ? '#d0dce8' : '#0a0f1a');
+    materials.wall.color.set(isLight ? '#d4dfe8' : '#3a4655');
+    materials.sideWall.color.set(isLight ? '#dfe9f2' : '#4a5568');
+    
+    // Ajustar materialidad de la pared para tema claro
+    if (isLight) {
+      materials.wall.roughness = 0.9;
+    } else {
+      materials.wall.roughness = 0.88;
+    }
+    
+    refreshSettingsTextures();
   };
 
   const makeBox = (
@@ -357,6 +883,66 @@ if (canvas) {
     return mesh;
   };
 
+  const makeWallPlane = (
+    name: string,
+    size: [number, number],
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(...size), material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    mesh.rotation.y = Math.PI / 2;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
+  };
+
+  const makeWallCircle = (
+    name: string,
+    radius: number,
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    mesh.rotation.y = Math.PI / 2;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
+  };
+
+  const makeBackWallPlane = (
+    name: string,
+    size: [number, number],
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(...size), material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
+  };
+
+  const isVisibleInScene = (object: THREE.Object3D) => {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (!current.visible) {
+        return false;
+      }
+      current = current.parent;
+    }
+    return true;
+  };
+
+  const getVisibleInteractiveObjects = () => interactive.filter((object) => isVisibleInScene(object));
+
   const room = new THREE.Group();
   scene.add(room);
 
@@ -368,177 +954,347 @@ if (canvas) {
   const frontLeftWall = makeBox('front-left-wall', [2.1, 4.65, 0.16], [-2.95, 2.24, 6.85], materials.sideWall);
   const frontRightWall = makeBox('front-right-wall', [2.1, 4.65, 0.16], [2.95, 2.24, 6.85], materials.sideWall);
   const frontTopWall = makeBox('front-top-wall', [3.9, 1.05, 0.16], [0, 4.05, 6.85], materials.sideWall);
+  
+  // Añadir moldura en el techo para más realismo
+  makeBox('ceiling-molding-back', [8, 0.04, 0.08], [0, 4.38, -2.96], materials.metal);
+  makeBox('ceiling-molding-left', [0.08, 0.04, 10.8], [-3.96, 4.38, 1.9], materials.metal);
+  makeBox('ceiling-molding-right', [0.08, 0.04, 10.8], [3.96, 4.38, 1.9], materials.metal);
+  
   room.add(floor, ceiling, backWall, leftWall, rightWall, frontLeftWall, frontRightWall, frontTopWall);
 
   makeBox('warm-led-strip', [7.2, 0.06, 0.08], [0, 4.2, -2.88], materials.amber);
-  makeBox('ceiling-light', [2.6, 0.06, 0.18], [-0.8, 4.42, -0.82], materials.projectsScreen);
+  makeBox('ceiling-light', [2.6, 0.06, 0.18], [-0.8, 4.42, -0.82], materials.cyanGlow);
+  const terminalWall = makeWallPlane('left-wall-terminal', [3.75, 2.22], [-3.915, 2.32, -0.84], terminalMaterial);
+  const terminalHover = makeWallPlane('left-wall-terminal-hover', [3.82, 2.3], [-3.912, 2.32, -0.84], materials.hover);
+  const terminalHit = makeWallPlane('left-wall-terminal-hitbox', [3.98, 2.48], [-3.905, 2.32, -0.84], materials.hitbox);
+  terminalHover.visible = false;
+  terminalHit.userData.action = 'terminal:focus';
+  terminalHit.userData.hover = terminalHover;
+  interactive.push(terminalHit);
+  makeBox('terminal-frame-top', [0.04, 0.08, 3.92], [-3.9, 3.47, -0.84], materials.metal);
+  makeBox('terminal-frame-bottom', [0.04, 0.08, 3.92], [-3.9, 1.17, -0.84], materials.metal);
+  makeBox('terminal-frame-back', [0.04, 2.3, 0.08], [-3.9, 2.32, -2.8], materials.metal);
+  makeBox('terminal-frame-front', [0.04, 2.3, 0.08], [-3.9, 2.32, 1.12], materials.metal);
+  terminalWall.userData.isTerminal = true;
+  
+  // Vigas mejoradas
   makeBox('ceiling-beam-left', [0.12, 0.18, 10.45], [-2.45, 4.34, 1.9], materials.metal);
   makeBox('ceiling-beam-right', [0.12, 0.18, 10.45], [2.45, 4.34, 1.9], materials.metal);
   makeBox('ceiling-beam-back', [7.65, 0.18, 0.12], [0, 4.34, -2.42], materials.metal);
   makeBox('ceiling-beam-front', [7.65, 0.18, 0.12], [0, 4.34, 5.7], materials.metal);
+  
+  // Vigas laterales para mayor estructuración
+  makeBox('ceiling-beam-left-end', [0.08, 0.12, 0.3], [-3.8, 4.36, 1.9], materials.metal);
+  makeBox('ceiling-beam-right-end', [0.08, 0.12, 0.3], [3.8, 4.36, 1.9], materials.metal);
 
-  makeBox('desk-top', [4.3, 0.22, 1.6], [0, 0.92, -0.55], materials.desk);
-  makeBox('desk-left-leg', [0.18, 0.92, 0.18], [-1.85, 0.43, 0.06], materials.metal);
-  makeBox('desk-right-leg', [0.18, 0.92, 0.18], [1.85, 0.43, 0.06], materials.metal);
-  makeBox('keyboard', [1.25, 0.08, 0.36], [-0.35, 1.08, 0.12], materials.dark);
-  makeBox('mouse', [0.34, 0.08, 0.24], [1.1, 1.08, 0.12], materials.dark);
-  for (let i = 0; i < 15; i += 1) {
-    makeBox(`key-${i}`, [0.055, 0.025, 0.055], [-0.86 + (i % 5) * 0.12, 1.14, 0.02 + Math.floor(i / 5) * 0.1], i % 3 === 0 ? materials.projectsScreen : materials.dark);
+  makeBox('desk-top', [4.55, 0.18, 1.7], [0, 0.94, -0.55], materials.desk);
+  makeBox('desk-front-edge', [4.7, 0.12, 0.08], [0, 1.03, 0.34], materials.deskEdge);
+  makeBox('desk-back-edge', [4.58, 0.1, 0.08], [0, 1.02, -1.43], materials.deskEdge);
+  makeBox('desk-left-edge', [0.08, 0.1, 1.72], [-2.33, 1.02, -0.55], materials.deskEdge);
+  makeBox('desk-right-edge', [0.08, 0.1, 1.72], [2.33, 1.02, -0.55], materials.deskEdge);
+  makeBox('desk-left-front-leg', [0.16, 0.92, 0.16], [-2.02, 0.43, 0.12], materials.metal);
+  makeBox('desk-right-front-leg', [0.16, 0.92, 0.16], [2.02, 0.43, 0.12], materials.metal);
+  makeBox('desk-left-back-leg', [0.14, 0.86, 0.14], [-2.02, 0.45, -1.16], materials.metal);
+  makeBox('desk-right-back-leg', [0.14, 0.86, 0.14], [2.02, 0.45, -1.16], materials.metal);
+  makeBox('desk-back-cable-tray', [3.55, 0.12, 0.18], [0, 0.72, -1.22], materials.cable);
+  makeBox('desk-under-led', [3.2, 0.035, 0.04], [0, 0.84, 0.27], materials.cyanGlow);
+  makeBox('keyboard', [1.34, 0.08, 0.42], [-0.38, 1.08, 0.08], materials.dark);
+  makeBox('mouse-pad', [0.95, 0.025, 0.62], [0.88, 1.045, 0.11], materials.deskMat);
+  makeBox('mouse', [0.32, 0.08, 0.24], [1.1, 1.11, 0.09], materials.dark);
+  makeBox('mouse-scroll-light', [0.055, 0.02, 0.045], [1.1, 1.165, -0.02], materials.cyanGlow);
+  
+  for (let i = 0; i < 30; i += 1) {
+    makeBox(
+      `key-${i}`,
+      [0.058, 0.025, 0.052],
+      [-0.94 + (i % 10) * 0.115, 1.14, -0.05 + Math.floor(i / 10) * 0.1],
+      i % 7 === 0 ? materials.cyanGlow : materials.dark,
+    );
   }
+  
+  // Lámpara de escritorio
+  makeBox('lamp-base', [0.12, 0.08, 0.12], [-1.65, 1.0, 0.38], materials.metal);
+  makeBox('lamp-pole', [0.04, 0.6, 0.04], [-1.65, 1.3, 0.38], materials.metal);
+  makeBox('lamp-head-left', [0.08, 0.12, 0.04], [-1.85, 1.74, 0.38], materials.metal);
+  makeBox('lamp-head-right', [0.08, 0.12, 0.04], [-1.45, 1.74, 0.38], materials.metal);
+  makeBox('lamp-head-top', [0.24, 0.04, 0.12], [-1.65, 1.82, 0.38], materials.metal);
+  makeBox('lamp-light', [0.2, 0.08, 0.08], [-1.65, 1.84, 0.38], materials.cyanGlow);
+  
+  // Pequeños objetos en el escritorio
+  makeBox('pencil-cup', [0.18, 0.22, 0.18], [1.72, 1.1, -0.42], materials.metal);
+  makeBox('pencil-a', [0.035, 0.28, 0.035], [1.66, 1.24, -0.42], materials.greenGlow);
+  makeBox('pencil-b', [0.035, 0.24, 0.035], [1.73, 1.22, -0.35], materials.amber);
+  makeBox('desk-note', [0.34, 0.025, 0.22], [1.75, 1.055, 0.06], materials.amber);
 
   makeBox('pc-case', [0.58, 1.2, 0.72], [2.35, 0.52, -0.55], materials.dark);
   makeBox('pc-glass', [0.5, 0.92, 0.04], [2.35, 0.62, -0.16], materials.glass);
-  makeBox('pc-fan-a', [0.28, 0.28, 0.04], [2.35, 0.84, -0.12], materials.projectsScreen);
-  makeBox('pc-fan-b', [0.28, 0.28, 0.04], [2.35, 0.38, -0.12], materials.contactScreen);
+  makeBox('pc-fan-a', [0.28, 0.28, 0.04], [2.35, 0.84, -0.12], materials.cyanGlow);
+  makeBox('pc-fan-b', [0.28, 0.28, 0.04], [2.35, 0.38, -0.12], materials.amber);
+  // Detalles adicionales de la PC
+  makeBox('pc-glow', [0.54, 0.16, 0.06], [2.35, 1.12, -0.12], materials.cyanGlow);
+  makeBox('pc-vent', [0.18, 0.32, 0.04], [2.35, 0.2, -0.14], materials.metal);
 
-  makeBox('bed-base', [2.2, 0.36, 2.45], [-2.85, 0.28, 1.35], materials.dark);
-  makeBox('mattress', [2.08, 0.28, 2.3], [-2.85, 0.62, 1.35], materials.bedding);
-  makeBox('blanket', [2.12, 0.12, 1.4], [-2.85, 0.84, 1.78], materials.blanket);
-  makeBox('pillow-left', [0.74, 0.18, 0.5], [-3.28, 0.86, 0.34], materials.pillow);
-  makeBox('pillow-right', [0.74, 0.18, 0.5], [-2.46, 0.86, 0.34], materials.pillow);
-  makeBox('rug', [2.6, 0.035, 1.45], [-0.7, 0.01, 1.48], materials.bedding);
+  const settingsWallPanel = new THREE.Group();
+  settingsWallPanel.name = 'settings-wall-panel';
+  settingsWallPanel.visible = false;
+  scene.add(settingsWallPanel);
 
-  makeBox('window-frame', [1.82, 1.72, 0.1], [-3.92, 2.28, 2.08], materials.dark);
-  makeBox('window-glass', [1.54, 1.44, 0.05], [-3.86, 2.28, 2.08], materials.glass);
-  makeBox('window-cross-v', [0.06, 1.5, 0.08], [-3.78, 2.28, 2.08], materials.dark);
-  makeBox('window-cross-h', [1.58, 0.06, 0.08], [-3.78, 2.28, 2.08], materials.dark);
+  const registerSettingsWallButton = (
+    name: string,
+    size: [number, number],
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+    action: string,
+  ) => {
+    const button = makeWallPlane(name, size, position, material);
+    const hover = makeWallPlane(`${name}-hover`, [size[0] + 0.035, size[1] + 0.035], [position[0] + 0.006, position[1], position[2]], materials.hover);
+    const hit = makeWallPlane(`${name}-hitbox`, [size[0] + 0.12, size[1] + 0.12], [position[0] + 0.012, position[1], position[2]], materials.hitbox);
+    hover.visible = false;
+    hit.userData.action = action;
+    hit.userData.hover = hover;
+    interactive.push(hit);
+    return { button, hover, hit };
+  };
 
-  const monitor = new THREE.Group();
-  monitor.name = 'projects';
-  const monitorFrame = makeBox('monitor-frame', [1.9, 1.18, 0.12], [-0.38, 1.8, -1.08], materials.dark);
-  const monitorScreen = makeBox('monitor-screen', [1.68, 0.92, 0.04], [-0.38, 1.82, -1.0], materials.projectsScreen);
-  const monitorGlow = makeBox('monitor-hover', [1.76, 1, 0.035], [-0.38, 1.82, -0.965], materials.hover);
-  const monitorStand = makeBox('monitor-stand', [0.18, 0.62, 0.16], [-0.38, 1.27, -1.08], materials.metal);
-  monitorGlow.visible = false;
-  monitor.add(monitorFrame, monitorScreen, monitorStand, monitorGlow);
-  scene.add(monitor);
-  const monitorHit = makeBox('monitor-hitbox', [2.18, 1.44, 0.18], [-0.38, 1.82, -0.82], materials.hitbox);
-  monitorHit.userData.target = 'projects';
-  monitorHit.userData.hover = monitorGlow;
-  interactive.push(monitorHit);
+  const registerSettingsWallRoundButton = (
+    name: string,
+    radius: number,
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+    action: string,
+  ) => {
+    const button = makeWallCircle(name, radius, position, material);
+    const hover = makeWallCircle(`${name}-hover`, radius + 0.025, [position[0] + 0.006, position[1], position[2]], materials.hover);
+    const hit = makeWallCircle(`${name}-hitbox`, radius + 0.08, [position[0] + 0.012, position[1], position[2]], materials.hitbox);
+    hover.visible = false;
+    hit.userData.action = action;
+    hit.userData.hover = hover;
+    interactive.push(hit);
+    return { button, hover, hit };
+  };
 
-  const leftDeskScreen = makeBox('left-desk-screen', [1.22, 0.76, 0.05], [-1.64, 1.72, -1.02], materials.techScreen);
-  const leftDeskGlow = makeBox('left-desk-hover', [1.3, 0.84, 0.035], [-1.64, 1.72, -0.97], materials.hover);
-  leftDeskGlow.visible = false;
-  const leftDeskHit = makeBox('left-desk-hitbox', [1.42, 0.96, 0.18], [-1.64, 1.72, -0.8], materials.hitbox);
-  leftDeskHit.userData.target = 'tech';
-  leftDeskHit.userData.hover = leftDeskGlow;
-  interactive.push(leftDeskHit, leftDeskScreen);
-  leftDeskScreen.userData.target = 'tech';
-  leftDeskScreen.userData.hover = leftDeskGlow;
+  const settingsToggleParts = registerSettingsWallRoundButton(
+    'settings-wall-toggle',
+    0.24,
+    [-3.91, 3.55, -2.54],
+    materials.settingsToggle,
+    'settings:toggle',
+  );
 
-  const rightDeskScreen = makeBox('right-desk-screen', [1.22, 0.76, 0.05], [0.92, 1.72, -1.02], materials.contactScreen);
-  const rightDeskGlow = makeBox('right-desk-hover', [1.3, 0.84, 0.035], [0.92, 1.72, -0.97], materials.hover);
-  rightDeskGlow.visible = false;
-  const rightDeskHit = makeBox('right-desk-hitbox', [1.42, 0.96, 0.18], [0.92, 1.72, -0.8], materials.hitbox);
-  rightDeskHit.userData.target = 'contact';
-  rightDeskHit.userData.hover = rightDeskGlow;
-  interactive.push(rightDeskHit, rightDeskScreen);
-  rightDeskScreen.userData.target = 'contact';
-  rightDeskScreen.userData.hover = rightDeskGlow;
+  const settingsThemeLabel = makeWallPlane('settings-wall-theme-label', [0.5, 0.26], [-3.9, 3.06, -2.45], materials.settingsThemeLabel);
+  const settingsDark = registerSettingsWallButton('settings-wall-dark', [0.54, 0.34], [-3.9, 3.06, -1.86], materials.settingsDark, 'settings:theme:dark');
+  const settingsLight = registerSettingsWallButton('settings-wall-light', [0.54, 0.34], [-3.9, 3.06, -1.26], materials.settingsLight, 'settings:theme:light');
+  const settingsLanguageLabel = makeWallPlane('settings-wall-language-label', [0.56, 0.26], [-3.9, 2.61, -2.45], materials.settingsLanguageLabel);
+  const settingsEs = registerSettingsWallButton('settings-wall-es', [0.54, 0.34], [-3.9, 2.61, -1.86], materials.settingsEs, 'settings:language:es');
+  const settingsEn = registerSettingsWallButton('settings-wall-en', [0.54, 0.34], [-3.9, 2.61, -1.26], materials.settingsEn, 'settings:language:en');
+  settingsWallPanel.add(
+    settingsThemeLabel,
+    settingsDark.button,
+    settingsDark.hover,
+    settingsDark.hit,
+    settingsLight.button,
+    settingsLight.hover,
+    settingsLight.hit,
+    settingsLanguageLabel,
+    settingsEs.button,
+    settingsEs.hover,
+    settingsEs.hit,
+    settingsEn.button,
+    settingsEn.hover,
+    settingsEn.hit,
+  );
+  const settingsOptionHits = [settingsDark.hit, settingsLight.hit, settingsEs.hit, settingsEn.hit];
+  const settingsOptionHovers = [settingsDark.hover, settingsLight.hover, settingsEs.hover, settingsEn.hover];
+  const setSettingsPanelOpen = (isOpen: boolean) => {
+    settingsPanelOpen = isOpen;
+    settingsWallPanel.visible = isOpen;
+    settingsOptionHits.forEach((hit) => {
+      hit.visible = isOpen;
+    });
+    settingsOptionHovers.forEach((hover) => {
+      hover.visible = false;
+    });
+    refreshSettingsTextures();
+  };
+  setSettingsPanelOpen(false);
 
-  const laptop = new THREE.Group();
-  laptop.name = 'contact';
-  const laptopBase = makeBox('laptop-base', [1.42, 0.08, 0.9], [1.12, 1.11, -0.25], materials.metal);
-  const laptopScreen = makeBox('laptop-screen', [1.36, 0.78, 0.06], [1.12, 1.5, -0.62], materials.contactScreen);
-  const laptopGlow = makeBox('laptop-hover', [1.44, 0.86, 0.035], [1.12, 1.5, -0.57], materials.hover);
-  laptopScreen.rotation.x = -0.22;
-  laptopGlow.rotation.x = -0.22;
-  laptopGlow.visible = false;
-  laptop.add(laptopBase, laptopScreen, laptopGlow);
-  scene.add(laptop);
-  const laptopHit = makeBox('laptop-hitbox', [1.72, 1.08, 0.18], [1.12, 1.48, -0.34], materials.hitbox);
-  laptopHit.userData.target = 'contact';
-  laptopHit.userData.hover = laptopGlow;
-  interactive.push(laptopHit);
+  const makeMonitor = (
+    key: string,
+    href: string,
+    x: number,
+    material: THREE.MeshStandardMaterial,
+  ) => {
+    const group = new THREE.Group();
+    group.name = key;
+    const frame = makeBox(`${key}-monitor-frame`, [1.72, 1.08, 0.1], [x, 1.8, -1.08], materials.dark);
+    const screen = makeBox(`${key}-monitor-screen`, [1.5, 0.86, 0.04], [x, 1.82, -0.995], material);
+    
+    makeBox(`${key}-monitor-bezel`, [1.56, 0.92, 0.04], [x, 1.82, -1.02], materials.metal);
+    makeBox(`${key}-monitor-bottom-lip`, [1.52, 0.08, 0.055], [x, 1.36, -0.99], materials.dark);
+    makeBox(`${key}-monitor-status-light`, [0.08, 0.025, 0.018], [x + 0.64, 1.36, -0.955], materials.cyanGlow);
+    
+    const glow = makeBox(`${key}-monitor-hover`, [1.52, 0.88, 0.022], [x, 1.82, -0.96], materials.hover);
+    const stand = makeBox(`${key}-monitor-stand`, [0.12, 0.26, 0.12], [x, 1.12, -1.08], materials.metal);
+    makeBox(`${key}-monitor-base`, [0.5, 0.05, 0.24], [x, 1.0, -1.08], materials.metal);
+    makeBox(`${key}-monitor-cable-port`, [0.12, 0.06, 0.04], [x, 0.92, -1.16], materials.dark);
+    
+    glow.visible = false;
+    group.add(frame, screen, stand, glow);
+    scene.add(group);
 
-  makeBox('shelf-long', [2.7, 0.16, 0.55], [-1.0, 2.96, -2.88], materials.desk);
-  makeBox('shelf', [2.25, 0.16, 0.55], [1.9, 2.82, -2.88], materials.metal);
-  makeBox('speaker-left', [0.28, 0.48, 0.28], [-2.0, 1.34, -1.02], materials.dark);
-  makeBox('speaker-right', [0.28, 0.48, 0.28], [1.72, 1.34, -1.02], materials.dark);
-  makeBox('camera-box', [0.42, 0.26, 0.28], [-1.66, 3.2, -2.72], materials.dark);
-  makeBox('lens', [0.16, 0.16, 0.05], [-1.66, 3.2, -2.52], materials.glass);
-  makeBox('storage-box-a', [0.54, 0.34, 0.42], [-0.98, 3.22, -2.72], materials.paper);
-  makeBox('storage-box-b', [0.48, 0.28, 0.38], [-0.38, 3.18, -2.72], materials.dark);
-  makeBox('book-a', [0.16, 0.58, 0.34], [1.1, 3.2, -2.72], materials.amber);
-  makeBox('book-b', [0.16, 0.48, 0.34], [1.32, 3.15, -2.72], materials.projectsScreen);
-  makeBox('book-c', [0.16, 0.54, 0.34], [1.55, 3.18, -2.72], materials.contactScreen);
-  const techScreen = makeBox('tech-screen', [1.85, 0.72, 0.05], [1.75, 3.5, -2.76], materials.techScreen);
-  const techGlow = makeBox('tech-hover', [1.95, 0.82, 0.035], [1.75, 3.5, -2.72], materials.hover);
-  techGlow.visible = false;
-  const shelfHit = makeBox('tech-hitbox', [2.05, 1.08, 0.2], [1.75, 3.42, -2.55], materials.hitbox);
-  shelfHit.userData.target = 'tech';
-  shelfHit.userData.hover = techGlow;
-  interactive.push(shelfHit, techScreen);
-  techScreen.userData.target = 'tech';
-  techScreen.userData.hover = techGlow;
+    const hit = makeBox(`${key}-monitor-hitbox`, [1.86, 1.28, 0.18], [x, 1.82, -0.82], materials.hitbox);
+    hit.userData.href = href;
+    hit.userData.hover = glow;
+    interactive.push(hit);
+  };
 
-  makeBox('cork-board', [1.78, 1.2, 0.05], [2.72, 3.05, -2.86], materials.cork);
-  makeBox('cork-frame-top', [1.9, 0.08, 0.1], [2.72, 3.68, -2.82], materials.desk);
-  makeBox('cork-frame-bottom', [1.9, 0.08, 0.1], [2.72, 2.42, -2.82], materials.desk);
-  makeBox('cork-frame-left', [0.08, 1.26, 0.1], [1.77, 3.05, -2.82], materials.desk);
-  makeBox('cork-frame-right', [0.08, 1.26, 0.1], [3.67, 3.05, -2.82], materials.desk);
+  makeMonitor('about', '/sobre-mi', -0.98, materials.projectsScreen);
+  makeMonitor('portfolio', '/portfolio', 0.88, materials.techScreen);
+  makeBox('dual-monitor-arm-pole', [0.09, 0.94, 0.09], [-0.06, 1.48, -1.24], materials.metal);
+  makeBox('dual-monitor-arm-clamp', [0.36, 0.12, 0.22], [-0.06, 1.02, -1.22], materials.metal);
+  makeBox('dual-monitor-arm-left', [0.98, 0.06, 0.06], [-0.54, 1.82, -1.24], materials.metal);
+  makeBox('dual-monitor-arm-right', [0.98, 0.06, 0.06], [0.43, 1.82, -1.24], materials.metal);
+  makeBox('dual-monitor-vesa-left', [0.34, 0.26, 0.04], [-0.98, 1.82, -1.18], materials.metal);
+  makeBox('dual-monitor-vesa-right', [0.34, 0.26, 0.04], [0.88, 1.82, -1.18], materials.metal);
+  makeBox('monitor-cable-left', [0.045, 0.78, 0.045], [-0.7, 1.38, -1.23], materials.cable);
+  makeBox('monitor-cable-right', [0.045, 0.78, 0.045], [0.58, 1.38, -1.23], materials.cable);
 
-  const photoFrame = makeBox('personal-photo-frame', [1.12, 0.78, 0.08], [2.74, 1.92, -2.84], materials.photoFrame);
-  makeBox('personal-photo-outer-frame', [1.28, 0.94, 0.06], [2.74, 1.92, -2.88], materials.dark);
-  makeBox('photo-caption-light', [0.52, 0.05, 0.05], [2.74, 1.42, -2.78], materials.projectsScreen);
-  photoFrame.userData.isPhotoFrame = true;
+  
+  // Detalles adicionales en las estanterías
+  
+  
+  
+  
+  const wallGallery = makeBackWallPlane('wall-photo-gallery', [2.72, 1.58], [-2.16, 2.82, -2.78], materials.galleryPhoto);
+  makeBox('wall-gallery-frame-top', [2.9, 0.08, 0.1], [-2.16, 3.65, -2.82], materials.desk);
+  makeBox('wall-gallery-frame-bottom', [2.9, 0.08, 0.1], [-2.16, 1.99, -2.82], materials.desk);
+  makeBox('wall-gallery-frame-left', [0.08, 1.66, 0.1], [-3.61, 2.82, -2.82], materials.desk);
+  makeBox('wall-gallery-frame-right', [0.08, 1.66, 0.1], [-0.71, 2.82, -2.82], materials.desk);
+  makeBox('wall-gallery-caption-light', [0.9, 0.045, 0.05], [-2.16, 1.9, -2.76], materials.cyanGlow);
+  wallGallery.userData.isPhotoFrame = true;
 
-  const plantPot = makeBox('plant-pot', [0.42, 0.34, 0.42], [-2.8, 0.28, -1.85], materials.amber);
-  for (let i = 0; i < 7; i += 1) {
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 10), materials.plant);
-    leaf.position.set(-2.8 + Math.cos(i) * 0.34, 0.68 + (i % 3) * 0.12, -1.85 + Math.sin(i * 1.7) * 0.26);
-    leaf.scale.set(1, 0.34, 0.72);
-    leaf.castShadow = true;
-    scene.add(leaf);
-  }
-  plantPot.castShadow = true;
+  makeBox('books-shelf', [2.3, 0.16, 0.52], [2.05, 3.32, -2.88], materials.desk);
+  makeBox('books-shelf-left-bracket', [0.08, 0.42, 0.08], [1.02, 3.08, -2.74], materials.metal);
+  makeBox('books-shelf-right-bracket', [0.08, 0.42, 0.08], [3.08, 3.08, -2.74], materials.metal);
+  makeBox('book-a', [0.16, 0.58, 0.34], [1.26, 3.72, -2.72], materials.amber);
+  makeBox('book-b', [0.16, 0.5, 0.34], [1.48, 3.68, -2.72], materials.greenGlow);
+  makeBox('book-c', [0.16, 0.62, 0.34], [1.7, 3.74, -2.72], materials.cyanGlow);
+  makeBox('book-d', [0.16, 0.54, 0.34], [1.92, 3.7, -2.72], materials.paper);
+  const magazine = makeBackWallPlane('blog-magazine', [0.66, 0.86], [2.58, 3.76, -2.76], materials.magazine);
+  const magazineGlow = makeBackWallPlane('blog-magazine-hover', [0.69, 0.89], [2.58, 3.76, -2.72], materials.hover);
+  magazineGlow.visible = false;
+  const magazineHit = makeBox('blog-magazine-hitbox', [0.84, 1.04, 0.18], [2.58, 3.76, -2.58], materials.hitbox);
+  magazineHit.userData.href = '/blog';
+  magazineHit.userData.hover = magazineGlow;
+  interactive.push(magazineHit);
 
-  makeBox('neon-top', [2.25, 0.08, 0.08], [-1.72, 3.22, -2.88], materials.projectsScreen);
-  makeBox('neon-side', [0.08, 1.15, 0.08], [-3.26, 1.88, -2.86], materials.amber);
-  makeBox('poster', [1.08, 0.76, 0.04], [-2.2, 2.42, -2.92], materials.dark);
-  makeBox('poster-glow', [0.86, 0.1, 0.05], [-2.2, 2.52, -2.86], materials.amber);
+  makeBox('toys-shelf', [1.9, 0.16, 0.52], [2.35, 2.18, -2.88], materials.desk);
+  makeBox('toys-shelf-left-bracket', [0.08, 0.38, 0.08], [1.52, 1.94, -2.74], materials.metal);
+  makeBox('toys-shelf-right-bracket', [0.08, 0.38, 0.08], [3.18, 1.94, -2.74], materials.metal);
+  makeBox('toy-cube-a', [0.28, 0.28, 0.28], [1.72, 2.42, -2.66], materials.cyanGlow);
+  makeBox('toy-cube-b', [0.22, 0.22, 0.22], [3.04, 2.4, -2.66], materials.amber);
 
-  scene.add(new THREE.HemisphereLight('#e0f2fe', '#0f172a', 1.25));
+  const monkey = new THREE.Group();
+  monkey.name = 'easter-egg-monkey';
+  const plush = new THREE.MeshStandardMaterial({ color: '#7c4a2d', roughness: 0.92 });
+  const plushFace = new THREE.MeshStandardMaterial({ color: '#d6a06a', roughness: 0.9 });
+  const plushDark = new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.86 });
+  const monkeyBaseColor = new THREE.Color('#7c4a2d');
+  const monkeyFaceBaseColor = new THREE.Color('#d6a06a');
+  const monkeyHoverColor = new THREE.Color('#22d3ee');
+  const monkeyFaceHoverColor = new THREE.Color('#fde68a');
+  const makeMonkeyPart = (
+    geometry: THREE.BufferGeometry,
+    material: THREE.Material,
+    position: THREE.Vector3Tuple,
+    scale: THREE.Vector3Tuple,
+  ) => {
+    const part = new THREE.Mesh(geometry, material);
+    part.position.set(...position);
+    part.scale.set(...scale);
+    part.castShadow = true;
+    part.receiveShadow = true;
+    monkey.add(part);
+    return part;
+  };
+  makeMonkeyPart(new THREE.SphereGeometry(0.32, 24, 16), plush, [0, 0.48, 0], [1, 1.08, 0.92]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.26, 24, 16), plush, [0, 0.9, 0], [1, 1, 0.9]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 18, 12), plush, [-0.26, 0.92, 0], [1, 1, 0.75]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 18, 12), plush, [0.26, 0.92, 0], [1, 1, 0.75]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.17, 18, 12), plushFace, [0, 0.84, 0.2], [1.1, 0.72, 0.42]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.034, 12, 8), plushDark, [-0.09, 0.93, 0.26], [1, 1, 1]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.034, 12, 8), plushDark, [0.09, 0.93, 0.26], [1, 1, 1]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 16, 10), plush, [-0.34, 0.4, 0.02], [0.55, 1.8, 0.5]);
+  makeMonkeyPart(new THREE.SphereGeometry(0.12, 16, 10), plush, [0.34, 0.4, 0.02], [0.55, 1.8, 0.5]);
+  monkey.position.set(2.42, 2.15, -2.63);
+  monkey.rotation.y = -0.18;
+  monkey.scale.set(0.5, 0.5, 0.5);
+  scene.add(monkey);
+  const monkeyHit = makeBox('monkey-hitbox', [0.72, 0.86, 0.32], [2.42, 2.58, -2.28], materials.hitbox);
+  monkeyHit.userData.href = '/easter-egg';
+  monkeyHit.userData.isMonkey = true;
+  interactive.push(monkeyHit);
 
-  const keyLight = new THREE.DirectionalLight('#ffffff', 2.6);
-  keyLight.position.set(2.8, 5.4, 3.2);
+  scene.add(new THREE.HemisphereLight('#e8f4f8', '#0a0e16', 1.35));
+
+  const keyLight = new THREE.DirectionalLight('#ffffff', 2.8);
+  keyLight.position.set(3.2, 5.8, 4.2);
   keyLight.castShadow = true;
-  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.mapSize.set(2048, 2048);
+  keyLight.shadow.camera.far = 20;
+  keyLight.shadow.bias = -0.0005;
   scene.add(keyLight);
 
-  const cyanLight = new THREE.PointLight('#22d3ee', 16, 7);
-  cyanLight.position.set(-1.3, 2.6, -1.2);
+  const fillLight = new THREE.DirectionalLight('#7dd3fc', 0.6);
+  fillLight.position.set(-4, 3.2, 2);
+  scene.add(fillLight);
+
+  const cyanLight = new THREE.PointLight('#22d3ee', 18, 8.5);
+  cyanLight.position.set(-1.5, 2.8, -1.5);
+  cyanLight.shadow.mapSize.set(512, 512);
   scene.add(cyanLight);
 
-  const amberLight = new THREE.PointLight('#f59e0b', 8, 5);
-  amberLight.position.set(-3.2, 1.8, -1.7);
+  const amberLight = new THREE.PointLight('#f59e0b', 10, 6.2);
+  amberLight.position.set(-3.5, 2.2, -2.0);
   scene.add(amberLight);
 
-  const windowLight = new THREE.PointLight('#bae6fd', 5, 5);
-  windowLight.position.set(-3.2, 2.45, 2.4);
+  const windowLight = new THREE.PointLight('#bae6fd', 6, 6.2);
+  windowLight.position.set(-3.5, 2.6, 2.6);
   scene.add(windowLight);
+
+  const deskKeyLight = new THREE.PointLight('#e0f2fe', 5, 4.5);
+  deskKeyLight.position.set(0.2, 2.2, 0.8);
+  scene.add(deskKeyLight);
 
   let photoIndex = 0;
   let lastPhotoChange = 0;
   const photoTextures = [0, 1, 2, 3].map((index) => makePhotoTexture(index));
+  const photoExtensions = ['webp', 'jpg', 'jpeg', 'png', 'svg'];
 
-  photoTextures.forEach((_, index) => {
+  const loadPhotoTexture = (index: number, extensionIndex = 0) => {
+    if (extensionIndex >= photoExtensions.length) {
+      return;
+    }
+
     textureLoader.load(
-      `/photos/photo-${index + 1}.jpg`,
+      `/photos/photo-${index + 1}.${photoExtensions[extensionIndex]}`,
       (texture) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
+        sharpenTexture(texture);
         photoTextures[index].dispose();
         photoTextures[index] = texture;
         if (index === photoIndex) {
           materials.photoFrame.map = texture;
+          materials.galleryPhoto.map = texture;
           materials.photoFrame.needsUpdate = true;
+          materials.galleryPhoto.needsUpdate = true;
         }
       },
       undefined,
-      () => undefined,
+      () => loadPhotoTexture(index, extensionIndex + 1),
     );
-  });
+  };
+
+  photoTextures.forEach((_, index) => loadPhotoTexture(index));
 
   applyStudioTheme(document.documentElement.dataset.theme ?? 'dark');
   applyStudioLanguage(document.documentElement.dataset.language ?? document.documentElement.lang);
@@ -568,15 +1324,15 @@ if (canvas) {
     }
 
     if (target === 'tech') {
-      cameraGoal.set(1.78, 3.5, -1.92);
-      targetGoal.set(1.75, 3.5, -2.78);
+      cameraGoal.set(2.55, 3.5, -1.92);
+      targetGoal.set(2.55, 3.5, -2.78);
       pendingPanel = 'tech';
       pendingPanelAt = transitionStart + transitionDuration + 90;
       return;
     }
 
-    cameraGoal.set(1.12, 1.5, 0.08);
-    targetGoal.set(1.12, 1.5, -0.64);
+    cameraGoal.set(1.25, 1.5, 0.36);
+    targetGoal.set(1.25, 1.5, -0.38);
     pendingPanel = 'contact';
     pendingPanelAt = transitionStart + transitionDuration + 90;
   };
@@ -601,7 +1357,7 @@ if (canvas) {
   canvas.addEventListener('pointermove', (event) => {
     updatePointer(event);
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(interactive, false)[0];
+    const hit = raycaster.intersectObjects(getVisibleInteractiveObjects(), false)[0];
     const nextHover = hit?.object ?? null;
 
     if (hoveredObject !== nextHover) {
@@ -632,16 +1388,90 @@ if (canvas) {
 
     updatePointer(event);
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(interactive, false)[0];
+    const hit = raycaster.intersectObjects(getVisibleInteractiveObjects(), false)[0];
+    const action = hit?.object.userData.action;
+    if (typeof action === 'string') {
+      if (action === 'terminal:focus') {
+        terminalFocused = true;
+        renderTerminalTexture();
+        return;
+      }
+
+      terminalFocused = false;
+      renderTerminalTexture();
+
+      if (action === 'settings:toggle') {
+        setSettingsPanelOpen(!settingsPanelOpen);
+        return;
+      }
+
+      if (action === 'settings:theme:dark' || action === 'settings:theme:light') {
+        window.dispatchEvent(new CustomEvent('settings:set-theme', { detail: action.endsWith('dark') ? 'dark' : 'light' }));
+        return;
+      }
+
+      if (action === 'settings:language:es' || action === 'settings:language:en') {
+        window.dispatchEvent(new CustomEvent('settings:set-language', { detail: action.endsWith('es') ? 'es' : 'en' }));
+        return;
+      }
+    }
+
+    const href = hit?.object.userData.href;
+    if (typeof href === 'string') {
+      terminalFocused = false;
+      renderTerminalTexture();
+      window.location.href = href;
+      return;
+    }
+
     const target = hit?.object.userData.target;
 
     if (typeof target === 'string') {
+      terminalFocused = false;
+      renderTerminalTexture();
       setCameraTarget(target);
       return;
     }
   };
 
   canvas.addEventListener('pointerup', activateScreenFromPointer);
+
+  window.addEventListener('keydown', (event) => {
+    if (!terminalFocused) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      terminalFocused = false;
+      renderTerminalTexture();
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      const command = terminalInput;
+      terminalInput = '';
+      runTerminalCommand(command);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'Backspace') {
+      terminalInput = terminalInput.slice(0, -1);
+      renderTerminalTexture();
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key.length === 1 && terminalInput.length < 44) {
+      terminalInput += event.key;
+      renderTerminalTexture();
+      event.preventDefault();
+    }
+  });
 
   const resize = () => {
     const { clientWidth, clientHeight } = canvas;
@@ -657,17 +1487,37 @@ if (canvas) {
   const animate = () => {
     const elapsed = clock.getElapsedTime();
     const delta = clock.getDelta();
-    materials.projectsScreen.emissiveIntensity = 0.8 + Math.sin(elapsed * 2.1) * 0.12;
-    materials.contactScreen.emissiveIntensity = 0.78 + Math.sin(elapsed * 2.6 + 1.2) * 0.12;
-    materials.techScreen.emissiveIntensity = 0.78 + Math.sin(elapsed * 2.3 + 0.5) * 0.12;
-    cyanLight.intensity = 14 + Math.sin(elapsed * 1.5) * 2;
-    amberLight.intensity = 8 + Math.sin(elapsed * 1.2) * 1.5;
+    
+    // Animación más realista de las pantallas
+    materials.projectsScreen.emissiveIntensity = 0.82 + Math.sin(elapsed * 2.1) * 0.14;
+    materials.contactScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.6 + 1.2) * 0.14;
+    materials.techScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.3 + 0.5) * 0.14;
+    const monkeyHoverAmount = hoveredObject?.userData.isMonkey ? (0.42 + Math.sin(elapsed * 5.2) * 0.18) : 0;
+    plush.color.copy(monkeyBaseColor).lerp(monkeyHoverColor, monkeyHoverAmount);
+    plush.emissive.copy(monkeyHoverColor).multiplyScalar(monkeyHoverAmount * 0.45);
+    plush.emissiveIntensity = monkeyHoverAmount;
+    plushFace.color.copy(monkeyFaceBaseColor).lerp(monkeyFaceHoverColor, monkeyHoverAmount * 0.75);
+    
+    // Luces dinámicas más realistas
+    cyanLight.intensity = 16 + Math.sin(elapsed * 1.5) * 2.5;
+    amberLight.intensity = 10 + Math.sin(elapsed * 1.2) * 1.8;
+    deskKeyLight.intensity = 4.5 + Math.sin(elapsed * 0.8) * 1.2;
 
     if (elapsed - lastPhotoChange > 3.2) {
       photoIndex = (photoIndex + 1) % 4;
       materials.photoFrame.map = photoTextures[photoIndex];
+      materials.galleryPhoto.map = photoTextures[photoIndex];
       materials.photoFrame.needsUpdate = true;
+      materials.galleryPhoto.needsUpdate = true;
       lastPhotoChange = elapsed;
+    }
+
+    if (terminalFocused) {
+      const cursorVisible = Math.floor(performance.now() / 520) % 2 === 0;
+      if (cursorVisible !== lastTerminalCursorVisible) {
+        lastTerminalCursorVisible = cursorVisible;
+        renderTerminalTexture();
+      }
     }
 
     if (isEnteringScreen || !controls.enabled) {
