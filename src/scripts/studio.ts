@@ -79,6 +79,8 @@ if (canvas) {
   let isLookDragging = false;
   let lookDragX = 0;
   let lookDragY = 0;
+  const activeTouchPointers = new Set<number>();
+  let suppressTouchTap = false;
   let transitionStart = 0;
   let transitionDuration = 380;
   let settingsPanelOpen = false;
@@ -2149,7 +2151,10 @@ if (canvas) {
   canvas.addEventListener('wheel', moveCameraTowardPointer, { passive: false, capture: true });
 
   canvas.addEventListener('pointermove', (event) => {
-    if (isLookDragging && controls.enabled && !isEnteringScreen && (event.buttons & 1) === 1) {
+    const canDragLook =
+      event.pointerType !== 'touch' || (activeTouchPointers.size === 1 && !suppressTouchTap);
+
+    if (isLookDragging && canDragLook && controls.enabled && !isEnteringScreen && (event.buttons & 1) === 1) {
       rotateCameraInPlace(event.clientX - lookDragX, event.clientY - lookDragY);
       lookDragX = event.clientX;
       lookDragY = event.clientY;
@@ -2177,17 +2182,34 @@ if (canvas) {
   });
 
   canvas.addEventListener('pointerdown', (event) => {
-    pointerDownX = event.clientX;
-    pointerDownY = event.clientY;
-    if (event.button === 0) {
+    if (event.pointerType === 'touch') {
+      activeTouchPointers.add(event.pointerId);
+      if (activeTouchPointers.size > 1) {
+        suppressTouchTap = true;
+        isLookDragging = false;
+      }
+    }
+
+    if (event.pointerType !== 'touch' || activeTouchPointers.size === 1) {
+      pointerDownX = event.clientX;
+      pointerDownY = event.clientY;
+    }
+
+    if (event.button === 0 && (event.pointerType !== 'touch' || activeTouchPointers.size === 1)) {
       isLookDragging = true;
       lookDragX = event.clientX;
       lookDragY = event.clientY;
-      canvas.setPointerCapture(event.pointerId);
+      if (event.pointerType !== 'touch') {
+        canvas.setPointerCapture(event.pointerId);
+      }
     }
   });
 
   const activateScreenFromPointer = (event: PointerEvent) => {
+    if (event.pointerType === 'touch' && suppressTouchTap) {
+      return;
+    }
+
     const moved = Math.hypot(event.clientX - pointerDownX, event.clientY - pointerDownY);
     if (moved > 6 || isEnteringScreen) {
       return;
@@ -2250,17 +2272,33 @@ if (canvas) {
   };
 
   canvas.addEventListener('pointerup', (event) => {
+    if (event.pointerType === 'touch') {
+      activeTouchPointers.delete(event.pointerId);
+    }
+
     isLookDragging = false;
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
     activateScreenFromPointer(event);
+
+    if (event.pointerType === 'touch' && activeTouchPointers.size === 0) {
+      suppressTouchTap = false;
+    }
   });
 
   canvas.addEventListener('pointercancel', (event) => {
+    if (event.pointerType === 'touch') {
+      activeTouchPointers.delete(event.pointerId);
+    }
+
     isLookDragging = false;
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
+    }
+
+    if (event.pointerType === 'touch' && activeTouchPointers.size === 0) {
+      suppressTouchTap = false;
     }
   });
 
@@ -2370,7 +2408,7 @@ if (canvas) {
     controls.maxAzimuthAngle = Infinity;
     controls.minDistance = 0;
     controls.maxDistance = Infinity;
-    controls.zoomSpeed = isCompactViewport ? 1.35 : 0.82;
+    controls.zoomSpeed = isCompactViewport ? 0.72 : 0.82;
     controls.rotateSpeed = isCompactViewport ? 0.58 : 0.72;
     renderer.setSize(clientWidth, clientHeight, false);
   };
