@@ -35,6 +35,11 @@ const translations: Record<Language, Record<string, string>> = {
     'door.theme': 'Tema',
     'door.dark': 'Oscuro',
     'door.light': 'Claro',
+    'controls.title': 'Controles',
+    'controls.rotate.action': 'Click + arrastrar',
+    'controls.rotate.result': 'Rotar camara',
+    'controls.zoom.action': 'Rueda / pellizcar',
+    'controls.zoom.result': 'Moverte con zoom',
   },
   en: {
     'settings.eyebrow': 'Settings',
@@ -69,6 +74,11 @@ const translations: Record<Language, Record<string, string>> = {
     'door.theme': 'Theme',
     'door.dark': 'Dark',
     'door.light': 'Light',
+    'controls.title': 'Controls',
+    'controls.rotate.action': 'Click + drag',
+    'controls.rotate.result': 'Look around',
+    'controls.zoom.action': 'Wheel / pinch',
+    'controls.zoom.result': 'Move with zoom',
   },
 };
 

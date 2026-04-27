@@ -15,6 +15,19 @@ import '../styles/global.css';
     <main class="room-app">
       <section class="room-section relative isolate overflow-hidden">
         <canvas id="studio-canvas" aria-label="Habitacion 3D interactiva del portfolio"></canvas>
+        <div class="room-loader" data-loading-screen aria-live="polite">
+          <div class="room-loader-inner">
+            <p>Welcome to my room</p>
+            <strong>Raul Perez</strong>
+          </div>
+        </div>
+        <aside class="controls-help" aria-label="Controles de la habitacion">
+          <p class="controls-help-title" data-i18n="controls.title">Controles</p>
+          <ul>
+            <li><span data-i18n="controls.rotate.action">Click + arrastrar</span><strong data-i18n="controls.rotate.result">Rotar camara</strong></li>
+            <li><span data-i18n="controls.zoom.action">Rueda / pellizcar</span><strong data-i18n="controls.zoom.result">Moverte con zoom</strong></li>
+          </ul>
+        </aside>
         <aside class="door-menu" data-door-menu aria-hidden="true">
           <div class="door-menu-inner">
             <p class="door-menu-eyebrow" data-i18n="door.menu">Menu</p>

@@ -6,6 +6,7 @@ const canvas = document.querySelector<HTMLCanvasElement>('#studio-canvas');
 if (canvas) {
   const doorMenu = document.querySelector<HTMLElement>('[data-door-menu]');
   const doorMenuRoom = document.querySelector<HTMLButtonElement>('[data-door-menu-room]');
+  const loadingScreen = document.querySelector<HTMLElement>('[data-loading-screen]');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#080a0f');
   scene.fog = new THREE.Fog('#080a0f', 8, 18);
@@ -37,17 +38,21 @@ if (canvas) {
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
   controls.enableZoom = true;
+  controls.enableRotate = false;
   controls.zoomToCursor = true;
   controls.zoomSpeed = 0.82;
   controls.rotateSpeed = 0.72;
-  controls.minDistance = 0.72;
-  controls.maxDistance = 7.2;
+  controls.minDistance = 0;
+  controls.maxDistance = Infinity;
   controls.maxPolarAngle = Math.PI;
   controls.minPolarAngle = 0;
   controls.minAzimuthAngle = -Infinity;
   controls.maxAzimuthAngle = Infinity;
+  controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+  controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+  controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
   controls.touches.ONE = THREE.TOUCH.ROTATE;
-  controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
 
   const interactive: THREE.Object3D[] = [];
   const raycaster = new THREE.Raycaster();
@@ -60,6 +65,8 @@ if (canvas) {
   const defaultCamera = baseCameraPosition.clone();
   const defaultTarget = baseCameraTarget.clone();
   let isCompactViewport = false;
+  let hasInitializedViewport = false;
+  let hasShownFirstFrame = false;
   let hoveredObject: THREE.Object3D | null = null;
   let pendingPanel: string | null = null;
   let pendingPanelAt = 0;
@@ -69,6 +76,9 @@ if (canvas) {
   let isEnteringScreen = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
+  let isLookDragging = false;
+  let lookDragX = 0;
+  let lookDragY = 0;
   let transitionStart = 0;
   let transitionDuration = 380;
   let settingsPanelOpen = false;
@@ -77,6 +87,7 @@ if (canvas) {
   let doorOpenAmount = 0;
   let terminalFocused = false;
   let terminalInput = '';
+  let terminalRenderQueued = false;
   let lastTerminalCursorVisible = false;
   let currentTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
   let currentLanguage = document.documentElement.dataset.language === 'en' || document.documentElement.lang === 'en' ? 'en' : 'es';
@@ -101,6 +112,7 @@ if (canvas) {
   terminalKeyboard.autocomplete = 'off';
   terminalKeyboard.autocapitalize = 'off';
   terminalKeyboard.spellcheck = false;
+  terminalKeyboard.enterKeyHint = 'send';
   terminalKeyboard.setAttribute('aria-label', 'Entrada de la terminal');
   canvas.parentElement?.append(terminalKeyboard);
 
@@ -447,6 +459,7 @@ if (canvas) {
   };
 
   const renderTerminalTexture = () => {
+    terminalRenderQueued = false;
     if (!terminalContext) {
       return;
     }
@@ -539,6 +552,15 @@ if (canvas) {
     }
 
     terminalTexture.needsUpdate = true;
+  };
+
+  const scheduleTerminalTextureRender = () => {
+    if (terminalRenderQueued) {
+      return;
+    }
+
+    terminalRenderQueued = true;
+    requestAnimationFrame(renderTerminalTexture);
   };
 
   const terminalMaterial = new THREE.MeshBasicMaterial({
@@ -660,11 +682,15 @@ if (canvas) {
     terminalKeyboard.setSelectionRange(terminalKeyboard.value.length, terminalKeyboard.value.length);
   };
 
-  const focusTerminal = () => {
+  const focusTerminal = (event?: PointerEvent) => {
     terminalFocused = true;
     syncTerminalKeyboard();
+    if (event) {
+      terminalKeyboard.style.left = `${event.clientX}px`;
+      terminalKeyboard.style.top = `${event.clientY}px`;
+    }
     terminalKeyboard.focus({ preventScroll: true });
-    renderTerminalTexture();
+    scheduleTerminalTextureRender();
   };
 
   const blurTerminal = () => {
@@ -674,7 +700,7 @@ if (canvas) {
 
     terminalFocused = false;
     terminalKeyboard.blur();
-    renderTerminalTexture();
+    scheduleTerminalTextureRender();
   };
 
   const submitTerminalCommand = () => {
@@ -953,6 +979,105 @@ if (canvas) {
     return texture;
   };
 
+  const makeParkViewTexture = () => {
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 1024;
+    textureCanvas.height = 768;
+    const context = textureCanvas.getContext('2d');
+
+    if (context) {
+      const sky = context.createLinearGradient(0, 0, 0, 420);
+      sky.addColorStop(0, '#7dd3fc');
+      sky.addColorStop(0.62, '#bae6fd');
+      sky.addColorStop(1, '#dcfce7');
+      context.fillStyle = sky;
+      context.fillRect(0, 0, 1024, 768);
+
+      context.fillStyle = 'rgba(255, 255, 255, 0.78)';
+      [
+        [142, 116, 82],
+        [206, 92, 58],
+        [668, 98, 76],
+        [730, 116, 62],
+      ].forEach(([x, y, radius]) => {
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI * 2);
+        context.arc(x + radius * 0.72, y + 8, radius * 0.72, 0, Math.PI * 2);
+        context.arc(x - radius * 0.78, y + 18, radius * 0.62, 0, Math.PI * 2);
+        context.fill();
+      });
+
+      context.fillStyle = '#34d399';
+      context.fillRect(0, 390, 1024, 378);
+      context.fillStyle = '#22c55e';
+      context.beginPath();
+      context.moveTo(0, 430);
+      for (let x = 0; x <= 1024; x += 64) {
+        context.lineTo(x, 410 + Math.sin(x * 0.02) * 22);
+      }
+      context.lineTo(1024, 768);
+      context.lineTo(0, 768);
+      context.closePath();
+      context.fill();
+
+      const path = context.createLinearGradient(420, 360, 590, 768);
+      path.addColorStop(0, '#d9c6a5');
+      path.addColorStop(1, '#bca078');
+      context.fillStyle = path;
+      context.beginPath();
+      context.moveTo(484, 382);
+      context.bezierCurveTo(440, 505, 396, 620, 348, 768);
+      context.lineTo(676, 768);
+      context.bezierCurveTo(610, 628, 562, 506, 540, 382);
+      context.closePath();
+      context.fill();
+      context.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+      context.lineWidth = 8;
+      for (let y = 442; y < 748; y += 58) {
+        context.beginPath();
+        context.moveTo(420 - (y - 442) * 0.18, y);
+        context.lineTo(610 + (y - 442) * 0.16, y + 8);
+        context.stroke();
+      }
+
+      const drawTree = (x: number, y: number, scale: number, color: string) => {
+        context.fillStyle = '#7c4a2d';
+        context.fillRect(x - 10 * scale, y, 20 * scale, 130 * scale);
+        context.fillStyle = color;
+        [
+          [0, -58, 58],
+          [-36, -28, 50],
+          [34, -30, 52],
+          [-10, 12, 46],
+          [22, 12, 42],
+        ].forEach(([offsetX, offsetY, radius]) => {
+          context.beginPath();
+          context.arc(x + offsetX * scale, y + offsetY * scale, radius * scale, 0, Math.PI * 2);
+          context.fill();
+        });
+      };
+
+      drawTree(116, 368, 1.08, '#15803d');
+      drawTree(286, 414, 0.78, '#16a34a');
+      drawTree(792, 382, 1.02, '#15803d');
+      drawTree(908, 444, 0.72, '#22c55e');
+
+      context.fillStyle = '#fef3c7';
+      context.beginPath();
+      context.arc(862, 108, 46, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#14532d';
+      for (let i = 0; i < 36; i += 1) {
+        const x = i * 34;
+        const h = 18 + Math.sin(i * 1.7) * 11;
+        context.fillRect(x, 748 - h, 26, h);
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    return sharpenTexture(texture);
+  };
+
   const makeScreenMaterial = (title: string, subtitle: string, accent = '#22d3ee') => new THREE.MeshStandardMaterial({
     color: '#ffffff',
     emissive: accent,
@@ -1106,6 +1231,14 @@ if (canvas) {
     photoFrame: new THREE.MeshBasicMaterial({ color: '#ffffff', map: makePhotoTexture(0) }),
     galleryPhoto: new THREE.MeshBasicMaterial({ color: '#ffffff', map: makePhotoTexture(1) }),
     magazine: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.48, map: makeMagazineTexture(), metalness: 0.02 }),
+    parkView: new THREE.MeshBasicMaterial({ color: '#ffffff', map: makeParkViewTexture() }),
+    bedFrame: new THREE.MeshStandardMaterial({ color: '#5b3424', roughness: 0.7, metalness: 0.04 }),
+    mattress: new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.84, metalness: 0.01 }),
+    blanket: new THREE.MeshStandardMaterial({ color: '#0f766e', roughness: 0.9, metalness: 0.01 }),
+    blanketFold: new THREE.MeshStandardMaterial({ color: '#14b8a6', roughness: 0.86, metalness: 0.01 }),
+    pillow: new THREE.MeshStandardMaterial({ color: '#eef6ff', roughness: 0.92, metalness: 0.01 }),
+    curtain: new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.78, metalness: 0.01 }),
+    parkGrass: new THREE.MeshStandardMaterial({ color: '#22c55e', roughness: 0.82, metalness: 0.01 }),
     hitbox: new THREE.MeshBasicMaterial({
       color: '#ffffff',
       transparent: true,
@@ -1300,6 +1433,22 @@ if (canvas) {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(...size), material);
     mesh.name = name;
     mesh.position.set(...position);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
+  };
+
+  const makeRearWallPlane = (
+    name: string,
+    size: [number, number],
+    position: THREE.Vector3Tuple,
+    material: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(...size), material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    mesh.rotation.y = Math.PI;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
@@ -1580,6 +1729,56 @@ if (canvas) {
   makeMonitor('about', '/sobre-mi', -0.98, materials.projectsScreen);
   makeMonitor('portfolio', '/portfolio', 0.88, materials.techScreen);
 
+  const bed = new THREE.Group();
+  bed.name = 'back-wall-bed-right-to-left';
+  bed.position.set(1.78, 0, 6.14);
+  scene.add(bed);
+  makeBoxInGroup(bed, 'bed-low-shadow-base', [3.82, 0.08, 1.34], [0, 0.18, 0], materials.deskEdge);
+  makeBoxInGroup(bed, 'bed-wood-frame', [3.92, 0.26, 1.44], [0, 0.34, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'bed-left-side-rail', [3.98, 0.18, 0.1], [0, 0.55, -0.72], materials.doorInset);
+  makeBoxInGroup(bed, 'bed-right-side-rail', [3.98, 0.18, 0.1], [0, 0.55, 0.72], materials.doorInset);
+  makeBoxInGroup(bed, 'bed-left-end-footboard', [0.14, 0.72, 1.48], [-2.04, 0.68, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'bed-right-end-headboard', [0.2, 1.12, 1.52], [2.06, 0.88, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'mattress', [3.62, 0.34, 1.22], [-0.06, 0.68, 0], materials.mattress);
+  makeBoxInGroup(bed, 'mattress-front-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, 0.64], materials.paper);
+  makeBoxInGroup(bed, 'mattress-back-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, -0.64], materials.paper);
+  makeBoxInGroup(bed, 'teal-blanket-main', [2.5, 0.12, 1.12], [-0.5, 0.94, 0], materials.blanket);
+  makeBoxInGroup(bed, 'teal-blanket-fold', [0.28, 0.16, 1.14], [0.84, 1.0, 0], materials.blanketFold);
+  makeBoxInGroup(bed, 'teal-blanket-left-drop', [0.12, 0.44, 1.08], [-1.78, 0.74, 0], materials.blanket);
+  makeBoxInGroup(bed, 'pillow-right-main', [0.64, 0.2, 0.88], [1.48, 1.02, 0], materials.pillow);
+  makeBoxInGroup(bed, 'pillow-right-top-softness', [0.48, 0.06, 0.72], [1.46, 1.16, 0], materials.paper);
+  makeBoxInGroup(bed, 'pillow-right-seam-front', [0.5, 0.024, 0.025], [1.46, 1.16, 0.43], materials.metal);
+  makeBoxInGroup(bed, 'pillow-right-seam-back', [0.5, 0.024, 0.025], [1.46, 1.16, -0.43], materials.metal);
+  [
+    [-1.72, -0.56],
+    [-1.72, 0.56],
+    [1.72, -0.56],
+    [1.72, 0.56],
+  ].forEach(([x, z], index) => {
+    makeBoxInGroup(bed, `bed-square-leg-${index + 1}`, [0.16, 0.38, 0.16], [x, 0.02, z], materials.deskEdge);
+  });
+
+  const bedRug = makeBox('back-bed-rug', [4.25, 0.028, 1.76], [1.78, 0.018, 6.14], materials.rug);
+  bedRug.receiveShadow = true;
+
+  const windowCenterX = -0.85;
+  const windowCenterY = 2.66;
+  const windowZ = 6.58;
+  makeBox('park-window-recess-shadow', [1.86, 1.42, 0.08], [windowCenterX, windowCenterY, 6.92], materials.doorVoid);
+  const parkView = makeRearWallPlane('park-window-view', [1.58, 1.12], [windowCenterX, windowCenterY, windowZ], materials.parkView);
+  parkView.castShadow = false;
+  parkView.receiveShadow = false;
+  const windowGlass = makeRearWallPlane('park-window-glass', [1.58, 1.12], [windowCenterX, windowCenterY, windowZ - 0.018], materials.glass);
+  windowGlass.castShadow = false;
+  windowGlass.receiveShadow = false;
+  makeBox('park-window-frame-top', [1.84, 0.12, 0.1], [windowCenterX, windowCenterY + 0.67, 6.54], materials.metal);
+  makeBox('park-window-frame-bottom', [1.84, 0.12, 0.1], [windowCenterX, windowCenterY - 0.67, 6.54], materials.metal);
+  makeBox('park-window-frame-left', [0.12, 1.44, 0.1], [windowCenterX - 0.92, windowCenterY, 6.54], materials.metal);
+  makeBox('park-window-frame-right', [0.12, 1.44, 0.1], [windowCenterX + 0.92, windowCenterY, 6.54], materials.metal);
+  makeBox('park-window-center-mullion', [0.08, 1.3, 0.08], [windowCenterX, windowCenterY, 6.51], materials.metal);
+  makeBox('park-window-cross-mullion', [1.66, 0.07, 0.08], [windowCenterX, windowCenterY + 0.05, 6.51], materials.metal);
+  makeBox('park-window-sill', [2.12, 0.12, 0.32], [windowCenterX, windowCenterY - 0.83, 6.38], materials.desk);
+  makeBox('park-window-sill-lip', [2.22, 0.055, 0.1], [windowCenterX, windowCenterY - 0.75, 6.22], materials.deskEdge);
   
   // Detalles adicionales en las estanterias
   
@@ -1911,7 +2110,52 @@ if (canvas) {
     pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
   };
 
+  const rotateCameraInPlace = (deltaX: number, deltaY: number) => {
+    const lookOffset = controls.target.clone().sub(camera.position);
+    const distance = Math.max(0.8, lookOffset.length());
+    const spherical = new THREE.Spherical().setFromVector3(lookOffset);
+    spherical.theta -= deltaX * 0.0042;
+    spherical.phi -= deltaY * 0.0036;
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.12, Math.PI - 0.12);
+    spherical.radius = distance;
+    controls.target.copy(camera.position).add(new THREE.Vector3().setFromSpherical(spherical));
+    cameraGoal.copy(camera.position);
+    targetGoal.copy(controls.target);
+  };
+
+  const moveCameraTowardPointer = (event: WheelEvent) => {
+    if (!controls.enabled || isEnteringScreen) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    updatePointer(event);
+    raycaster.setFromCamera(pointer, camera);
+
+    const deltaModeMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 120 : 1;
+    const normalizedDelta = THREE.MathUtils.clamp(event.deltaY * deltaModeMultiplier, -140, 140);
+    const moveAmount = -normalizedDelta * 0.0042;
+    const previousPosition = camera.position.clone();
+
+    camera.position.addScaledVector(raycaster.ray.direction, moveAmount);
+    keepCameraInsideRoom();
+    const actualMove = camera.position.clone().sub(previousPosition);
+    controls.target.add(actualMove);
+    cameraGoal.copy(camera.position);
+    targetGoal.copy(controls.target);
+  };
+
+  canvas.addEventListener('wheel', moveCameraTowardPointer, { passive: false, capture: true });
+
   canvas.addEventListener('pointermove', (event) => {
+    if (isLookDragging && controls.enabled && !isEnteringScreen && (event.buttons & 1) === 1) {
+      rotateCameraInPlace(event.clientX - lookDragX, event.clientY - lookDragY);
+      lookDragX = event.clientX;
+      lookDragY = event.clientY;
+      event.preventDefault();
+    }
+
     updatePointer(event);
     raycaster.setFromCamera(pointer, camera);
     const hit = raycaster.intersectObjects(getVisibleInteractiveObjects(), false)[0];
@@ -1935,6 +2179,12 @@ if (canvas) {
   canvas.addEventListener('pointerdown', (event) => {
     pointerDownX = event.clientX;
     pointerDownY = event.clientY;
+    if (event.button === 0) {
+      isLookDragging = true;
+      lookDragX = event.clientX;
+      lookDragY = event.clientY;
+      canvas.setPointerCapture(event.pointerId);
+    }
   });
 
   const activateScreenFromPointer = (event: PointerEvent) => {
@@ -1949,7 +2199,7 @@ if (canvas) {
     const action = hit?.object.userData.action;
     if (typeof action === 'string') {
       if (action === 'terminal:focus') {
-        focusTerminal();
+        focusTerminal(event);
         return;
       }
 
@@ -1999,7 +2249,20 @@ if (canvas) {
     blurTerminal();
   };
 
-  canvas.addEventListener('pointerup', activateScreenFromPointer);
+  canvas.addEventListener('pointerup', (event) => {
+    isLookDragging = false;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    activateScreenFromPointer(event);
+  });
+
+  canvas.addEventListener('pointercancel', (event) => {
+    isLookDragging = false;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  });
 
   document.addEventListener('pointerdown', (event) => {
     if (event.target === canvas || event.target === terminalKeyboard) {
@@ -2012,7 +2275,7 @@ if (canvas) {
   terminalKeyboard.addEventListener('input', () => {
     terminalInput = terminalKeyboard.value.slice(0, 44);
     syncTerminalKeyboard();
-    renderTerminalTexture();
+    scheduleTerminalTextureRender();
   });
 
   terminalKeyboard.addEventListener('keydown', (event) => {
@@ -2062,7 +2325,7 @@ if (canvas) {
     if (event.key === 'Backspace') {
       terminalInput = terminalInput.slice(0, -1);
       syncTerminalKeyboard();
-      renderTerminalTexture();
+      scheduleTerminalTextureRender();
       event.preventDefault();
       return;
     }
@@ -2070,7 +2333,7 @@ if (canvas) {
     if (event.key.length === 1 && terminalInput.length < 44) {
       terminalInput += event.key;
       syncTerminalKeyboard();
-      renderTerminalTexture();
+      scheduleTerminalTextureRender();
       event.preventDefault();
     }
   });
@@ -2083,26 +2346,30 @@ if (canvas) {
 
     const aspect = clientWidth / clientHeight;
     const compactAmount = Math.min(1, Math.max(0, (baseViewportAspect - aspect) / 0.9));
-    const distanceScale = 1 + compactAmount * 0.62;
-    const targetLift = compactAmount * 0.06;
+    const shouldApplyInitialCamera = !hasInitializedViewport;
+    const distanceScale = 1 + compactAmount * 0.12;
+    const targetLift = compactAmount * 0.02;
     const cameraOffset = baseCameraPosition.clone().sub(baseCameraTarget).multiplyScalar(distanceScale);
 
     isCompactViewport = compactAmount > 0.08;
     defaultTarget.copy(baseCameraTarget).add(new THREE.Vector3(0, targetLift, 0));
     defaultCamera.copy(defaultTarget).add(cameraOffset);
 
-    if (!isEnteringScreen && !pendingPanel) {
+    if (shouldApplyInitialCamera && !isEnteringScreen && !pendingPanel) {
       cameraGoal.copy(defaultCamera);
       targetGoal.copy(defaultTarget);
+      camera.position.copy(defaultCamera);
+      controls.target.copy(defaultTarget);
+      hasInitializedViewport = true;
     }
 
     camera.aspect = aspect;
-    camera.fov = baseCameraFov + compactAmount * 20;
+    camera.fov = baseCameraFov + compactAmount * 6;
     camera.updateProjectionMatrix();
     controls.minAzimuthAngle = -Infinity;
     controls.maxAzimuthAngle = Infinity;
-    controls.minDistance = isCompactViewport ? 1.15 : 0.72;
-    controls.maxDistance = isCompactViewport ? 6.65 : 7.2;
+    controls.minDistance = 0;
+    controls.maxDistance = Infinity;
     controls.zoomSpeed = isCompactViewport ? 1.35 : 0.82;
     controls.rotateSpeed = isCompactViewport ? 0.58 : 0.72;
     renderer.setSize(clientWidth, clientHeight, false);
@@ -2195,6 +2462,10 @@ if (canvas) {
     }
 
     renderer.render(scene, camera);
+    if (!hasShownFirstFrame) {
+      hasShownFirstFrame = true;
+      requestAnimationFrame(() => loadingScreen?.classList.add('is-hidden'));
+    }
     requestAnimationFrame(animate);
   };
 
