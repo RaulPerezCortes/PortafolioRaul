@@ -1,9 +1,8 @@
 Coloca aqui tus fotos para la galeria.
 
-Nombres recomendados:
-- photo-1.jpg
-- photo-2.jpg
-- photo-3.jpg
-- photo-4.jpg
+Archivos usados ahora mismo por la escena:
+- photo-1.jpeg
+- photo-2.jpeg
+- photo-3.jpeg
 
-Tambien se aceptan .webp, .jpeg, .png y .svg.
+Si anades mas fotos, tendras que registrarlas tambien en `src/scripts/studio.ts`.

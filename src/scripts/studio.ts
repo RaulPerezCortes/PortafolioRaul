@@ -28,7 +28,7 @@ if (canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -58,7 +58,8 @@ if (canvas) {
   const raycaster = new THREE.Raycaster();
   const textureLoader = new THREE.TextureLoader();
   const pointer = new THREE.Vector2();
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   const terminalKeyboard = document.createElement('input');
   const cameraGoal = baseCameraPosition.clone();
   const targetGoal = baseCameraTarget.clone();
@@ -79,6 +80,7 @@ if (canvas) {
   let isLookDragging = false;
   let lookDragX = 0;
   let lookDragY = 0;
+  let touchTerminalPointerId: number | null = null;
   const activeTouchPointers = new Set<number>();
   let suppressTouchTap = false;
   let transitionStart = 0;
@@ -109,6 +111,8 @@ if (canvas) {
   const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
 
   terminalKeyboard.className = 'terminal-keyboard-proxy';
+  terminalKeyboard.id = 'terminal-keyboard-proxy';
+  terminalKeyboard.name = 'terminal-command';
   terminalKeyboard.type = 'text';
   terminalKeyboard.inputMode = 'text';
   terminalKeyboard.autocomplete = 'off';
@@ -290,6 +294,7 @@ if (canvas) {
     type: TerminalLineType;
     commandText?: string;
     descriptionText?: string;
+    commandContinuation?: boolean;
   };
 
   const terminalCopy = {
@@ -447,17 +452,43 @@ if (canvas) {
     x: number,
     y: number,
   ) => {
-    if (!line.commandText || !line.descriptionText) {
+    if (!line.descriptionText) {
       context.fillText(line.text, x, y);
       return;
     }
 
+    const descriptionX = x + context.measureText(`  ${''.padEnd(16, ' ')} `).width;
+    if (line.commandContinuation || !line.commandText) {
+      context.fillStyle = '#cbd5e1';
+      context.fillText(line.descriptionText, descriptionX, y);
+      return;
+    }
+
     const commandX = x + context.measureText('  ').width;
-    const descriptionX = x + context.measureText(`  ${line.commandText.padEnd(16, ' ')} `).width;
     context.fillStyle = '#f59e0b';
     context.fillText(line.commandText, commandX, y);
     context.fillStyle = '#cbd5e1';
     context.fillText(line.descriptionText, descriptionX, y);
+  };
+
+  const wrapHelpCommandLine = (
+    context: CanvasRenderingContext2D,
+    line: TerminalLine,
+    maxWidth: number,
+  ) => {
+    if (!line.commandText || !line.descriptionText) {
+      return [line];
+    }
+
+    const descriptionOffset = context.measureText(`  ${line.commandText.padEnd(16, ' ')} `).width;
+    const descriptionRows = wrapTerminalLine(context, line.descriptionText, maxWidth - descriptionOffset);
+    return descriptionRows.map((descriptionText, index) => ({
+      text: index === 0 ? line.text : descriptionText,
+      type: 'command' as const,
+      commandText: index === 0 ? line.commandText : undefined,
+      descriptionText,
+      commandContinuation: index > 0,
+    }));
   };
 
   const renderTerminalTexture = () => {
@@ -507,7 +538,7 @@ if (canvas) {
     const visibleLines = terminalLines
       .flatMap((line) => {
         if (line.type === 'command') {
-          return [line];
+          return wrapHelpCommandLine(terminalContext, line, contentWidth);
         }
 
         return wrapTerminalLine(terminalContext, line.text, contentWidth).map((text) => ({
@@ -691,7 +722,11 @@ if (canvas) {
       terminalKeyboard.style.left = `${event.clientX}px`;
       terminalKeyboard.style.top = `${event.clientY}px`;
     }
-    terminalKeyboard.focus({ preventScroll: true });
+    try {
+      terminalKeyboard.focus({ preventScroll: true });
+    } catch {
+      terminalKeyboard.focus();
+    }
     scheduleTerminalTextureRender();
   };
 
@@ -1735,35 +1770,35 @@ if (canvas) {
   bed.name = 'back-wall-bed-right-to-left';
   bed.position.set(1.78, 0, 6.14);
   scene.add(bed);
-  makeBoxInGroup(bed, 'bed-low-shadow-base', [3.82, 0.08, 1.34], [0, 0.18, 0], materials.deskEdge);
-  makeBoxInGroup(bed, 'bed-wood-frame', [3.92, 0.26, 1.44], [0, 0.34, 0], materials.bedFrame);
-  makeBoxInGroup(bed, 'bed-left-side-rail', [3.98, 0.18, 0.1], [0, 0.55, -0.72], materials.doorInset);
-  makeBoxInGroup(bed, 'bed-right-side-rail', [3.98, 0.18, 0.1], [0, 0.55, 0.72], materials.doorInset);
-  makeBoxInGroup(bed, 'bed-left-end-footboard', [0.14, 0.72, 1.48], [-2.04, 0.68, 0], materials.bedFrame);
-  makeBoxInGroup(bed, 'bed-right-end-headboard', [0.2, 1.12, 1.52], [2.06, 0.88, 0], materials.bedFrame);
-  makeBoxInGroup(bed, 'mattress', [3.62, 0.34, 1.22], [-0.06, 0.68, 0], materials.mattress);
-  makeBoxInGroup(bed, 'mattress-front-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, 0.64], materials.paper);
-  makeBoxInGroup(bed, 'mattress-back-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, -0.64], materials.paper);
-  makeBoxInGroup(bed, 'teal-blanket-main', [2.5, 0.12, 1.12], [-0.5, 0.94, 0], materials.blanket);
-  makeBoxInGroup(bed, 'teal-blanket-fold', [0.28, 0.16, 1.14], [0.84, 1.0, 0], materials.blanketFold);
-  makeBoxInGroup(bed, 'teal-blanket-left-drop', [0.12, 0.44, 1.08], [-1.78, 0.74, 0], materials.blanket);
-  makeBoxInGroup(bed, 'pillow-right-main', [0.64, 0.2, 0.88], [1.48, 1.02, 0], materials.pillow);
-  makeBoxInGroup(bed, 'pillow-right-top-softness', [0.48, 0.06, 0.72], [1.46, 1.16, 0], materials.paper);
-  makeBoxInGroup(bed, 'pillow-right-seam-front', [0.5, 0.024, 0.025], [1.46, 1.16, 0.43], materials.metal);
-  makeBoxInGroup(bed, 'pillow-right-seam-back', [0.5, 0.024, 0.025], [1.46, 1.16, -0.43], materials.metal);
+  makeBoxInGroup(bed, 'bed-low-shadow-base', [3.82, 0.08, 1.42], [0, 0.18, 0], materials.deskEdge);
+  makeBoxInGroup(bed, 'bed-wood-frame', [3.92, 0.26, 1.52], [0, 0.34, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'bed-left-side-rail', [3.98, 0.18, 0.1], [0, 0.55, -0.76], materials.doorInset);
+  makeBoxInGroup(bed, 'bed-right-side-rail', [3.98, 0.18, 0.1], [0, 0.55, 0.76], materials.doorInset);
+  makeBoxInGroup(bed, 'bed-left-end-footboard', [0.14, 0.72, 1.56], [-2.04, 0.68, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'bed-right-end-headboard', [0.2, 1.12, 1.6], [2.06, 0.88, 0], materials.bedFrame);
+  makeBoxInGroup(bed, 'mattress', [3.62, 0.34, 1.3], [-0.06, 0.68, 0], materials.mattress);
+  makeBoxInGroup(bed, 'mattress-front-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, 0.68], materials.paper);
+  makeBoxInGroup(bed, 'mattress-back-piping', [3.48, 0.035, 0.035], [-0.14, 0.87, -0.68], materials.paper);
+  makeBoxInGroup(bed, 'teal-blanket-main', [2.5, 0.12, 1.2], [-0.5, 0.94, 0], materials.blanket);
+  makeBoxInGroup(bed, 'teal-blanket-fold', [0.28, 0.16, 1.22], [0.84, 1.0, 0], materials.blanketFold);
+  makeBoxInGroup(bed, 'teal-blanket-left-drop', [0.12, 0.44, 1.16], [-1.78, 0.74, 0], materials.blanket);
+  makeBoxInGroup(bed, 'pillow-right-main', [0.64, 0.2, 0.94], [1.48, 1.02, 0], materials.pillow);
+  makeBoxInGroup(bed, 'pillow-right-top-softness', [0.48, 0.06, 0.78], [1.46, 1.16, 0], materials.paper);
+  makeBoxInGroup(bed, 'pillow-right-seam-front', [0.5, 0.024, 0.025], [1.46, 1.16, 0.46], materials.metal);
+  makeBoxInGroup(bed, 'pillow-right-seam-back', [0.5, 0.024, 0.025], [1.46, 1.16, -0.46], materials.metal);
   [
-    [-1.72, -0.56],
-    [-1.72, 0.56],
-    [1.72, -0.56],
-    [1.72, 0.56],
+    [-1.72, -0.6],
+    [-1.72, 0.6],
+    [1.72, -0.6],
+    [1.72, 0.6],
   ].forEach(([x, z], index) => {
     makeBoxInGroup(bed, `bed-square-leg-${index + 1}`, [0.16, 0.38, 0.16], [x, 0.02, z], materials.deskEdge);
   });
 
-  const bedRug = makeBox('back-bed-rug', [4.25, 0.028, 1.76], [1.78, 0.018, 6.14], materials.rug);
+  const bedRug = makeBox('back-bed-rug', [4.25, 0.028, 1.92], [1.78, 0.018, 6.14], materials.rug);
   bedRug.receiveShadow = true;
 
-  const windowCenterX = -0.85;
+  const windowCenterX = -1.02;
   const windowCenterY = 2.66;
   const windowZ = 6.58;
   makeBox('park-window-recess-shadow', [1.86, 1.42, 0.08], [windowCenterX, windowCenterY, 6.92], materials.doorVoid);
@@ -1797,14 +1832,37 @@ if (canvas) {
   wallGallery.userData.isPhotoFrame = true;
 
   makeBox('books-shelf', [2.3, 0.16, 0.52], [2.05, 3.32, -2.71], materials.desk);
-  makeBox('book-a', [0.16, 0.58, 0.34], [1.26, 3.72, -2.72], materials.amber);
-  makeBox('book-b', [0.16, 0.5, 0.34], [1.48, 3.68, -2.72], materials.greenGlow);
-  makeBox('book-c', [0.16, 0.62, 0.34], [1.7, 3.74, -2.72], materials.cyanGlow);
-  makeBox('book-d', [0.16, 0.54, 0.34], [1.92, 3.7, -2.72], materials.paper);
-  const magazine = makeBackWallPlane('blog-magazine', [0.66, 0.86], [2.58, 3.76, -2.965], materials.magazine);
-  const magazineGlow = makeBackWallPlane('blog-magazine-hover', [0.69, 0.89], [2.58, 3.76, -2.955], materials.hover);
+  const makeShelfBook = (
+    name: string,
+    size: THREE.Vector3Tuple,
+    position: THREE.Vector3Tuple,
+    coverMaterial: THREE.Material,
+    accentMaterial: THREE.Material,
+  ) => {
+    const [width, height, depth] = size;
+    const [x, y, z] = position;
+    const pageDepth = Math.max(depth - 0.065, 0.18);
+    const pageWidth = Math.max(width - 0.04, 0.08);
+    const pageHeight = Math.max(height - 0.05, 0.12);
+    makeBox(`${name}-cover`, size, position, coverMaterial);
+    makeBox(`${name}-pages`, [pageWidth, pageHeight, pageDepth], [x + 0.01, y + 0.005, z + 0.012], materials.paper);
+    makeBox(`${name}-spine-band`, [width * 0.18, height, depth + 0.008], [x - width * 0.39, y, z], accentMaterial);
+    makeBox(`${name}-top-band`, [pageWidth * 0.78, 0.028, depth * 0.24], [x + 0.01, y + height * 0.42, z + depth * 0.29], accentMaterial);
+    makeBox(`${name}-title-chip`, [pageWidth * 0.52, 0.08, 0.018], [x + 0.01, y - height * 0.06, z + depth * 0.19], accentMaterial);
+  };
+  makeShelfBook('book-a', [0.16, 0.58, 0.34], [1.26, 3.72, -2.72], materials.amber, materials.metal);
+  makeShelfBook('book-b', [0.16, 0.5, 0.34], [1.48, 3.68, -2.72], materials.greenGlow, materials.amber);
+  makeShelfBook('book-c', [0.16, 0.62, 0.34], [1.7, 3.74, -2.72], materials.cyanGlow, materials.metal);
+  makeShelfBook('book-d', [0.16, 0.54, 0.34], [1.92, 3.7, -2.72], materials.paper, materials.deskEdge);
+  const magazineBody = makeBox('blog-magazine-body', [0.7, 0.9, 0.06], [2.58, 3.76, -2.61], materials.paper);
+  magazineBody.rotation.x = -0.08;
+  const magazine = makeBackWallPlane('blog-magazine', [0.66, 0.86], [2.58, 3.77, -2.575], materials.magazine);
+  magazine.rotation.x = -0.08;
+  const magazineGlow = makeBackWallPlane('blog-magazine-hover', [0.69, 0.89], [2.58, 3.77, -2.565], materials.hover);
+  magazineGlow.rotation.x = -0.08;
   magazineGlow.visible = false;
-  const magazineHit = makeBox('blog-magazine-hitbox', [0.84, 1.04, 0.18], [2.58, 3.76, -2.88], materials.hitbox);
+  makeBox('blog-magazine-stand', [0.12, 0.46, 0.08], [2.86, 3.62, -2.73], materials.deskEdge);
+  const magazineHit = makeBox('blog-magazine-hitbox', [0.84, 1.04, 0.28], [2.58, 3.76, -2.67], materials.hitbox);
   magazineHit.userData.href = '/blog';
   magazineHit.userData.hover = magazineGlow;
   interactive.push(magazineHit);
@@ -1972,16 +2030,22 @@ if (canvas) {
 
   let photoIndex = 0;
   let lastPhotoChange = 0;
-  const photoTextures = [0, 1, 2, 3].map((index) => makePhotoTexture(index));
-  const photoExtensions = ['webp', 'jpg', 'jpeg', 'png', 'svg'];
+  const photoSources = [
+    '/photos/photo-1.jpeg',
+    '/photos/photo-2.jpeg',
+    '/photos/photo-3.jpeg',
+    null,
+  ] as const;
+  const photoTextures = photoSources.map((_, index) => makePhotoTexture(index));
 
-  const loadPhotoTexture = (index: number, extensionIndex = 0) => {
-    if (extensionIndex >= photoExtensions.length) {
+  const loadPhotoTexture = (index: number) => {
+    const source = photoSources[index];
+    if (!source) {
       return;
     }
 
     textureLoader.load(
-      `/photos/photo-${index + 1}.${photoExtensions[extensionIndex]}`,
+      source,
       (texture) => {
         sharpenTexture(texture);
         photoTextures[index].dispose();
@@ -1994,11 +2058,10 @@ if (canvas) {
         }
       },
       undefined,
-      () => loadPhotoTexture(index, extensionIndex + 1),
     );
   };
 
-  photoTextures.forEach((_, index) => loadPhotoTexture(index));
+  photoSources.forEach((_, index) => loadPhotoTexture(index));
 
   applyStudioTheme(document.documentElement.dataset.theme ?? 'dark');
   applyStudioLanguage(document.documentElement.dataset.language ?? document.documentElement.lang);
@@ -2073,21 +2136,18 @@ if (canvas) {
   };
 
   const openDoorMenu = () => {
+    if (doorMenuOpen) {
+      closeDoorMenu();
+      return;
+    }
+
     pendingPanel = null;
     pendingNavigationHref = null;
-    pendingDoorMenuAt = performance.now() + 1180;
+    pendingDoorMenuAt = 0;
     doorMenuOpen = true;
     doorOpenTarget = 1;
-    controls.enabled = false;
-    isEnteringScreen = true;
-    transitionStart = performance.now();
-    transitionDuration = 920;
-    transitionFromCamera.copy(camera.position);
-    transitionFromTarget.copy(controls.target);
-    doorReturnCamera.copy(camera.position);
-    doorReturnTarget.copy(controls.target);
-    cameraGoal.set(2.75, 1.72, 0.24);
-    targetGoal.set(3.88, 1.52, 0.26);
+    doorMenu?.classList.remove('is-open');
+    doorMenu?.setAttribute('aria-hidden', 'true');
   };
 
   const closeDoorMenu = () => {
@@ -2096,20 +2156,18 @@ if (canvas) {
     doorOpenTarget = 0;
     doorMenu?.classList.remove('is-open');
     doorMenu?.setAttribute('aria-hidden', 'true');
-    controls.enabled = false;
-    isEnteringScreen = false;
-    transitionStart = performance.now();
-    transitionDuration = 520;
-    transitionFromCamera.copy(camera.position);
-    transitionFromTarget.copy(controls.target);
-    cameraGoal.copy(doorReturnCamera.lengthSq() ? doorReturnCamera : defaultCamera);
-    targetGoal.copy(doorReturnTarget.lengthSq() ? doorReturnTarget : defaultTarget);
   };
 
   const updatePointer = (event: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+  };
+
+  const getInteractiveHitFromPointerEvent = (event: PointerEvent) => {
+    updatePointer(event);
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.intersectObjects(getVisibleInteractiveObjects(), false)[0];
   };
 
   const rotateCameraInPlace = (deltaX: number, deltaY: number) => {
@@ -2161,9 +2219,7 @@ if (canvas) {
       event.preventDefault();
     }
 
-    updatePointer(event);
-    raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(getVisibleInteractiveObjects(), false)[0];
+    const hit = getInteractiveHitFromPointerEvent(event);
     const nextHover = hit?.object ?? null;
 
     if (hoveredObject !== nextHover) {
@@ -2193,6 +2249,17 @@ if (canvas) {
     if (event.pointerType !== 'touch' || activeTouchPointers.size === 1) {
       pointerDownX = event.clientX;
       pointerDownY = event.clientY;
+    }
+
+    if (event.pointerType === 'touch' && activeTouchPointers.size === 1) {
+      const hit = getInteractiveHitFromPointerEvent(event);
+      if (hit?.object.userData.action === 'terminal:focus') {
+        touchTerminalPointerId = event.pointerId;
+        isLookDragging = false;
+        focusTerminal(event);
+        event.preventDefault();
+        return;
+      }
     }
 
     if (event.button === 0 && (event.pointerType !== 'touch' || activeTouchPointers.size === 1)) {
@@ -2280,6 +2347,15 @@ if (canvas) {
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
+
+    if (event.pointerType === 'touch' && touchTerminalPointerId === event.pointerId) {
+      touchTerminalPointerId = null;
+      if (activeTouchPointers.size === 0) {
+        suppressTouchTap = false;
+      }
+      return;
+    }
+
     activateScreenFromPointer(event);
 
     if (event.pointerType === 'touch' && activeTouchPointers.size === 0) {
@@ -2295,6 +2371,10 @@ if (canvas) {
     isLookDragging = false;
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
+    }
+
+    if (touchTerminalPointerId === event.pointerId) {
+      touchTerminalPointerId = null;
     }
 
     if (event.pointerType === 'touch' && activeTouchPointers.size === 0) {
@@ -2413,17 +2493,19 @@ if (canvas) {
     renderer.setSize(clientWidth, clientHeight, false);
   };
 
-  const animate = () => {
-    const elapsed = clock.getElapsedTime();
-    const delta = clock.getDelta();
+  const animate = (timestamp?: number) => {
+    timer.update(timestamp);
+    const elapsed = timer.getElapsed();
+    const delta = timer.getDelta();
     
     // Animacion mas realista de las pantallas
     materials.projectsScreen.emissiveIntensity = 0.82 + Math.sin(elapsed * 2.1) * 0.14;
     materials.contactScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.6 + 1.2) * 0.14;
     materials.techScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.3 + 0.5) * 0.14;
-    doorOpenAmount = THREE.MathUtils.lerp(doorOpenAmount, doorOpenTarget, Math.min(1, delta * 5.6));
+    const doorOpenSpeed = doorOpenTarget > doorOpenAmount ? 2.15 : 4.8;
+    doorOpenAmount = THREE.MathUtils.lerp(doorOpenAmount, doorOpenTarget, Math.min(1, delta * doorOpenSpeed));
     if (doorPivot) {
-      doorPivot.rotation.y = -doorOpenAmount * 1.68;
+      doorPivot.rotation.y = -doorOpenAmount * 2.05;
     }
     if (hoveredObject?.userData.isDoorKnob) {
       const knobColor = new THREE.Color().setHSL((elapsed * 0.42) % 1, 0.92, 0.56);
