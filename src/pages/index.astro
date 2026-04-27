@@ -15,6 +15,34 @@ import '../styles/global.css';
     <main class="room-app">
       <section class="room-section relative isolate overflow-hidden">
         <canvas id="studio-canvas" aria-label="Habitacion 3D interactiva del portfolio"></canvas>
+        <aside class="door-menu" data-door-menu aria-hidden="true">
+          <div class="door-menu-inner">
+            <p class="door-menu-eyebrow" data-i18n="door.menu">Menu</p>
+            <nav class="door-menu-nav" aria-label="Navegacion principal">
+              <button class="door-menu-back" type="button" data-door-menu-room data-i18n="door.back">Volver a la habitacion</button>
+              <a href="/sobre-mi" data-i18n="door.about">Sobre mi</a>
+              <a href="/portfolio" data-i18n="door.portfolio">Portfolio</a>
+              <a href="/blog" data-i18n="door.blog">Blog</a>
+              <a href="/easter-egg" data-i18n="door.game">Juego</a>
+            </nav>
+            <div class="door-menu-controls">
+              <div class="door-menu-control">
+                <span data-i18n="door.language">Idioma</span>
+                <div class="segmented-control">
+                  <button type="button" data-language-choice="es">ES</button>
+                  <button type="button" data-language-choice="en">EN</button>
+                </div>
+              </div>
+              <div class="door-menu-control">
+                <span data-i18n="door.theme">Tema</span>
+                <div class="segmented-control">
+                  <button type="button" data-theme-choice="dark" data-i18n="door.dark">Oscuro</button>
+                  <button type="button" data-theme-choice="light" data-i18n="door.light">Claro</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
       </section>
     </main>
 

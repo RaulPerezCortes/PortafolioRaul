@@ -4,6 +4,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 const canvas = document.querySelector<HTMLCanvasElement>('#studio-canvas');
 
 if (canvas) {
+  const doorMenu = document.querySelector<HTMLElement>('[data-door-menu]');
+  const doorMenuRoom = document.querySelector<HTMLButtonElement>('[data-door-menu-room]');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#080a0f');
   scene.fog = new THREE.Fog('#080a0f', 8, 18);
@@ -38,7 +40,7 @@ if (canvas) {
   controls.zoomToCursor = true;
   controls.zoomSpeed = 0.82;
   controls.rotateSpeed = 0.72;
-  controls.minDistance = 1.7;
+  controls.minDistance = 0.72;
   controls.maxDistance = 7.2;
   controls.maxPolarAngle = Math.PI;
   controls.minPolarAngle = 0;
@@ -63,12 +65,16 @@ if (canvas) {
   let pendingPanelAt = 0;
   let pendingNavigationHref: string | null = null;
   let pendingNavigationAt = 0;
+  let pendingDoorMenuAt = 0;
   let isEnteringScreen = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
   let transitionStart = 0;
   let transitionDuration = 380;
   let settingsPanelOpen = false;
+  let doorMenuOpen = false;
+  let doorOpenTarget = 0;
+  let doorOpenAmount = 0;
   let terminalFocused = false;
   let terminalInput = '';
   let lastTerminalCursorVisible = false;
@@ -76,6 +82,9 @@ if (canvas) {
   let currentLanguage = document.documentElement.dataset.language === 'en' || document.documentElement.lang === 'en' ? 'en' : 'es';
   const transitionFromCamera = new THREE.Vector3();
   const transitionFromTarget = new THREE.Vector3();
+  const doorReturnCamera = new THREE.Vector3();
+  const doorReturnTarget = new THREE.Vector3();
+  let doorPivot: THREE.Group | null = null;
   const cameraRoomBounds = {
     minX: -3.72,
     maxX: 3.72,
@@ -964,6 +973,22 @@ if (canvas) {
     metal: new THREE.MeshStandardMaterial({ color: '#2a3441', roughness: 0.35, metalness: 0.68 }),
     cable: new THREE.MeshStandardMaterial({ color: '#020617', roughness: 0.58, metalness: 0.08 }),
     dark: new THREE.MeshStandardMaterial({ color: '#050811', roughness: 0.65, metalness: 0.15 }),
+    door: new THREE.MeshStandardMaterial({ color: '#6f3f28', roughness: 0.72, metalness: 0.03 }),
+    doorInset: new THREE.MeshStandardMaterial({ color: '#8a5438', roughness: 0.68, metalness: 0.04 }),
+    doorKnob: new THREE.MeshStandardMaterial({
+      color: '#f59e0b',
+      emissive: '#f59e0b',
+      emissiveIntensity: 0.65,
+      roughness: 0.28,
+      metalness: 0.72,
+    }),
+    doorVoid: new THREE.MeshStandardMaterial({
+      color: '#030712',
+      emissive: '#000000',
+      emissiveIntensity: 0,
+      roughness: 0.9,
+      metalness: 0.02,
+    }),
     projectsScreen: makeScreenMaterial('SOBRE MI', 'DESCRIPCION / CV / CONTACTO', '#22d3ee'),
     techScreen: makeScreenMaterial('PORTFOLIO', 'EXPERIENCIA / PROYECTOS / SKILLS', '#a855f7'),
     contactScreen: makeScreenMaterial('CONTACTO', 'ENVIAR EMAIL', '#f59e0b'),
@@ -1318,6 +1343,46 @@ if (canvas) {
   
   room.add(floor, ceiling, backWall, leftWall, rightWall, frontLeftWall, frontRightWall, frontCenterWall, frontTopWall);
 
+  const doorPortal = makeBox('right-wall-door-portal', [0.035, 2.76, 1.56], [3.895, 1.46, 0.32], materials.doorVoid);
+  doorPortal.castShadow = false;
+  const doorFrameTop = makeBox('right-wall-door-frame-top', [0.16, 0.14, 1.68], [3.82, 2.87, 0.32], materials.metal);
+  const doorFrameBack = makeBox('right-wall-door-frame-back', [0.16, 2.9, 0.12], [3.82, 1.49, -0.46], materials.metal);
+  const doorFrameFront = makeBox('right-wall-door-frame-front', [0.16, 2.9, 0.12], [3.82, 1.49, 1.1], materials.metal);
+  [doorFrameTop, doorFrameBack, doorFrameFront].forEach((frame) => {
+    frame.castShadow = true;
+    frame.receiveShadow = true;
+  });
+
+  doorPivot = new THREE.Group();
+  doorPivot.name = 'right-wall-menu-door';
+  doorPivot.position.set(3.82, 0.08, -0.4);
+  scene.add(doorPivot);
+  const doorPanel = makeBoxInGroup(doorPivot, 'right-wall-menu-door-panel', [0.1, 2.66, 1.34], [0, 1.33, 0.67], materials.door);
+  const doorInsetTop = makeBoxInGroup(doorPivot, 'right-wall-menu-door-inset-top', [0.035, 0.76, 0.92], [-0.06, 1.92, 0.67], materials.doorInset);
+  const doorInsetBottom = makeBoxInGroup(doorPivot, 'right-wall-menu-door-inset-bottom', [0.035, 0.86, 0.92], [-0.06, 0.82, 0.67], materials.doorInset);
+  [doorPanel, doorInsetTop, doorInsetBottom].forEach((part) => {
+    part.castShadow = true;
+    part.receiveShadow = true;
+  });
+
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.115, 32, 18), materials.doorKnob);
+  knob.name = 'right-wall-menu-door-knob';
+  knob.position.set(-0.115, 1.43, 1.18);
+  knob.castShadow = true;
+  knob.receiveShadow = true;
+  doorPivot.add(knob);
+  const knobStem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 24), materials.doorKnob);
+  knobStem.name = 'right-wall-menu-door-knob-stem';
+  knobStem.position.set(-0.06, 1.43, 1.18);
+  knobStem.rotation.z = Math.PI / 2;
+  knobStem.castShadow = true;
+  knobStem.receiveShadow = true;
+  doorPivot.add(knobStem);
+  const knobHit = makeBoxInGroup(doorPivot, 'right-wall-menu-door-knob-hitbox', [0.28, 0.46, 0.46], [-0.14, 1.43, 1.18], materials.hitbox);
+  knobHit.userData.action = 'door:open-menu';
+  knobHit.userData.isDoorKnob = true;
+  interactive.push(knobHit);
+
   const terminalWall = makeWallPlane('left-wall-terminal', [8.3, 3.26], [-3.915, 2.32, 1.86], terminalMaterial);
   const terminalHover = makeWallPlane('left-wall-terminal-hover', [8.38, 3.34], [-3.912, 2.32, 1.86], materials.hover);
   const terminalHit = makeWallPlane('left-wall-terminal-hitbox', [8.52, 3.48], [-3.905, 2.32, 1.86], materials.hitbox);
@@ -1514,14 +1579,6 @@ if (canvas) {
 
   makeMonitor('about', '/sobre-mi', -0.98, materials.projectsScreen);
   makeMonitor('portfolio', '/portfolio', 0.88, materials.techScreen);
-  makeBox('dual-monitor-arm-pole', [0.09, 0.94, 0.09], [-0.06, 1.48, -1.24], materials.metal);
-  makeBox('dual-monitor-arm-clamp', [0.36, 0.12, 0.22], [-0.06, 1.02, -1.22], materials.metal);
-  makeBox('dual-monitor-arm-left', [0.98, 0.06, 0.06], [-0.54, 1.82, -1.24], materials.metal);
-  makeBox('dual-monitor-arm-right', [0.98, 0.06, 0.06], [0.43, 1.82, -1.24], materials.metal);
-  makeBox('dual-monitor-vesa-left', [0.34, 0.26, 0.04], [-0.98, 1.82, -1.18], materials.metal);
-  makeBox('dual-monitor-vesa-right', [0.34, 0.26, 0.04], [0.88, 1.82, -1.18], materials.metal);
-  makeBox('monitor-cable-left', [0.045, 0.78, 0.045], [-0.7, 1.38, -1.23], materials.cable);
-  makeBox('monitor-cable-right', [0.045, 0.78, 0.045], [0.58, 1.38, -1.23], materials.cable);
 
   
   // Detalles adicionales en las estanterias
@@ -1530,28 +1587,28 @@ if (canvas) {
   
   
   const galleryX = -1.22;
-  const galleryBoard = makeBackWallPlane('wall-gallery-wood-board', [3.28, 1.98], [galleryX, 2.82, -2.765], materials.desk);
-  const wallGallery = makeBackWallPlane('wall-photo-gallery', [3.02, 1.72], [galleryX, 2.82, -2.745], materials.galleryPhoto);
+  const galleryBoard = makeBox('wall-gallery-wood-board', [3.28, 1.98, 0.18], [galleryX, 2.82, -2.88], materials.door);
+  const wallGallery = makeBackWallPlane('wall-photo-gallery', [2.96, 1.66], [galleryX, 2.82, -2.775], materials.galleryPhoto);
   galleryBoard.castShadow = false;
   galleryBoard.receiveShadow = false;
   wallGallery.castShadow = false;
   wallGallery.receiveShadow = false;
   wallGallery.userData.isPhotoFrame = true;
 
-  makeBox('books-shelf', [2.3, 0.16, 0.52], [2.05, 3.32, -2.88], materials.desk);
+  makeBox('books-shelf', [2.3, 0.16, 0.52], [2.05, 3.32, -2.71], materials.desk);
   makeBox('book-a', [0.16, 0.58, 0.34], [1.26, 3.72, -2.72], materials.amber);
   makeBox('book-b', [0.16, 0.5, 0.34], [1.48, 3.68, -2.72], materials.greenGlow);
   makeBox('book-c', [0.16, 0.62, 0.34], [1.7, 3.74, -2.72], materials.cyanGlow);
   makeBox('book-d', [0.16, 0.54, 0.34], [1.92, 3.7, -2.72], materials.paper);
-  const magazine = makeBackWallPlane('blog-magazine', [0.66, 0.86], [2.58, 3.76, -2.76], materials.magazine);
-  const magazineGlow = makeBackWallPlane('blog-magazine-hover', [0.69, 0.89], [2.58, 3.76, -2.72], materials.hover);
+  const magazine = makeBackWallPlane('blog-magazine', [0.66, 0.86], [2.58, 3.76, -2.965], materials.magazine);
+  const magazineGlow = makeBackWallPlane('blog-magazine-hover', [0.69, 0.89], [2.58, 3.76, -2.955], materials.hover);
   magazineGlow.visible = false;
-  const magazineHit = makeBox('blog-magazine-hitbox', [0.84, 1.04, 0.18], [2.58, 3.76, -2.58], materials.hitbox);
+  const magazineHit = makeBox('blog-magazine-hitbox', [0.84, 1.04, 0.18], [2.58, 3.76, -2.88], materials.hitbox);
   magazineHit.userData.href = '/blog';
   magazineHit.userData.hover = magazineGlow;
   interactive.push(magazineHit);
 
-  makeBox('toys-shelf', [1.9, 0.16, 0.52], [2.35, 2.18, -2.88], materials.desk);
+  makeBox('toys-shelf', [1.9, 0.16, 0.52], [2.35, 2.18, -2.71], materials.desk);
   const registerShelfControl = (
     name: string,
     position: THREE.Vector3Tuple,
@@ -1786,6 +1843,11 @@ if (canvas) {
   const resetCamera = () => {
     pendingPanel = null;
     pendingNavigationHref = null;
+    pendingDoorMenuAt = 0;
+    doorMenuOpen = false;
+    doorOpenTarget = 0;
+    doorMenu?.classList.remove('is-open');
+    doorMenu?.setAttribute('aria-hidden', 'true');
     isEnteringScreen = false;
     transitionStart = performance.now();
     transitionDuration = 520;
@@ -1807,6 +1869,40 @@ if (canvas) {
     transitionFromTarget.copy(controls.target);
     cameraGoal.set(screenX, 1.82, -0.58);
     targetGoal.set(screenX, 1.82, -1.06);
+  };
+
+  const openDoorMenu = () => {
+    pendingPanel = null;
+    pendingNavigationHref = null;
+    pendingDoorMenuAt = performance.now() + 1180;
+    doorMenuOpen = true;
+    doorOpenTarget = 1;
+    controls.enabled = false;
+    isEnteringScreen = true;
+    transitionStart = performance.now();
+    transitionDuration = 920;
+    transitionFromCamera.copy(camera.position);
+    transitionFromTarget.copy(controls.target);
+    doorReturnCamera.copy(camera.position);
+    doorReturnTarget.copy(controls.target);
+    cameraGoal.set(2.75, 1.72, 0.24);
+    targetGoal.set(3.88, 1.52, 0.26);
+  };
+
+  const closeDoorMenu = () => {
+    pendingDoorMenuAt = 0;
+    doorMenuOpen = false;
+    doorOpenTarget = 0;
+    doorMenu?.classList.remove('is-open');
+    doorMenu?.setAttribute('aria-hidden', 'true');
+    controls.enabled = false;
+    isEnteringScreen = false;
+    transitionStart = performance.now();
+    transitionDuration = 520;
+    transitionFromCamera.copy(camera.position);
+    transitionFromTarget.copy(controls.target);
+    cameraGoal.copy(doorReturnCamera.lengthSq() ? doorReturnCamera : defaultCamera);
+    targetGoal.copy(doorReturnTarget.lengthSq() ? doorReturnTarget : defaultTarget);
   };
 
   const updatePointer = (event: PointerEvent) => {
@@ -1861,6 +1957,11 @@ if (canvas) {
 
       if (action === 'settings:toggle') {
         setSettingsPanelOpen(!settingsPanelOpen);
+        return;
+      }
+
+      if (action === 'door:open-menu') {
+        openDoorMenu();
         return;
       }
 
@@ -2000,7 +2101,7 @@ if (canvas) {
     camera.updateProjectionMatrix();
     controls.minAzimuthAngle = -Infinity;
     controls.maxAzimuthAngle = Infinity;
-    controls.minDistance = isCompactViewport ? 2.65 : 1.7;
+    controls.minDistance = isCompactViewport ? 1.15 : 0.72;
     controls.maxDistance = isCompactViewport ? 6.65 : 7.2;
     controls.zoomSpeed = isCompactViewport ? 1.35 : 0.82;
     controls.rotateSpeed = isCompactViewport ? 0.58 : 0.72;
@@ -2015,6 +2116,20 @@ if (canvas) {
     materials.projectsScreen.emissiveIntensity = 0.82 + Math.sin(elapsed * 2.1) * 0.14;
     materials.contactScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.6 + 1.2) * 0.14;
     materials.techScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.3 + 0.5) * 0.14;
+    doorOpenAmount = THREE.MathUtils.lerp(doorOpenAmount, doorOpenTarget, Math.min(1, delta * 5.6));
+    if (doorPivot) {
+      doorPivot.rotation.y = -doorOpenAmount * 1.68;
+    }
+    if (hoveredObject?.userData.isDoorKnob) {
+      const knobColor = new THREE.Color().setHSL((elapsed * 0.42) % 1, 0.92, 0.56);
+      materials.doorKnob.color.copy(knobColor);
+      materials.doorKnob.emissive.copy(knobColor);
+      materials.doorKnob.emissiveIntensity = 1.45 + Math.sin(elapsed * 8) * 0.32;
+    } else {
+      materials.doorKnob.color.set('#f59e0b');
+      materials.doorKnob.emissive.set('#f59e0b');
+      materials.doorKnob.emissiveIntensity = 0.65;
+    }
     const monkeyHoverAmount = hoveredObject?.userData.isMonkey ? (0.42 + Math.sin(elapsed * 5.2) * 0.18) : 0;
     plush.color.copy(monkeyBaseColor).lerp(monkeyHoverColor, monkeyHoverAmount);
     plush.emissive.copy(monkeyHoverColor).multiplyScalar(monkeyHoverAmount * 0.45);
@@ -2073,12 +2188,19 @@ if (canvas) {
       pendingNavigationHref = null;
     }
 
+    if (pendingDoorMenuAt && performance.now() >= pendingDoorMenuAt) {
+      doorMenu?.classList.add('is-open');
+      doorMenu?.setAttribute('aria-hidden', 'false');
+      pendingDoorMenuAt = 0;
+    }
+
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
   };
 
   window.addEventListener('resize', resize);
   window.addEventListener('studio:exit-screen', resetCamera);
+  doorMenuRoom?.addEventListener('click', closeDoorMenu);
   resize();
   animate();
 }
