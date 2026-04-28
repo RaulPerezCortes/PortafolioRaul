@@ -6,7 +6,10 @@ const canvas = document.querySelector<HTMLCanvasElement>('#studio-canvas');
 if (canvas) {
   const doorMenu = document.querySelector<HTMLElement>('[data-door-menu]');
   const doorMenuRoom = document.querySelector<HTMLButtonElement>('[data-door-menu-room]');
+  const doorMenuLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-door-menu] a[href]'));
   const loadingScreen = document.querySelector<HTMLElement>('[data-loading-screen]');
+  const roomTransition = document.querySelector<HTMLElement>('[data-room-transition]');
+  roomTransition?.classList.remove('is-hidden');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#080a0f');
   scene.fog = new THREE.Fog('#080a0f', 8, 18);
@@ -53,12 +56,15 @@ if (canvas) {
   controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
   controls.touches.ONE = THREE.TOUCH.ROTATE;
   controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+  controls.enabled = false;
 
   const interactive: THREE.Object3D[] = [];
   const raycaster = new THREE.Raycaster();
   const textureLoader = new THREE.TextureLoader();
   const pointer = new THREE.Vector2();
   const timer = new THREE.Timer();
+  const bootStartedAt = performance.now();
+  const minimumLoaderDuration = 2400;
   timer.connect(document);
   const terminalKeyboard = document.createElement('input');
   const cameraGoal = baseCameraPosition.clone();
@@ -68,13 +74,26 @@ if (canvas) {
   let isCompactViewport = false;
   let hasInitializedViewport = false;
   let hasShownFirstFrame = false;
+  let hasStartedDoorIntro = false;
+  let doorIntroStage: 'idle' | 'black' | 'enter' | 'close' = 'idle';
+  let doorIntroStageStart = 0;
+  let doorIntroOverlayReleased = false;
+  let doorExitStage: 'idle' | 'open' | 'travel' | 'black' = 'idle';
+  let doorExitStageStart = 0;
+  let doorExitOpenDuration = 0;
+  let doorExitTravelDuration = 0;
+  let doorExitBlackDuration = 0;
   let hoveredObject: THREE.Object3D | null = null;
   let pendingPanel: string | null = null;
   let pendingPanelAt = 0;
   let pendingNavigationHref: string | null = null;
   let pendingNavigationAt = 0;
   let pendingDoorMenuAt = 0;
+  let pendingRoomTransitionAt = 0;
+  let pendingRoomTransitionVisible = false;
+  let pendingRoomTransitionInstant = false;
   let isEnteringScreen = false;
+  let enableControlsOnTransitionEnd = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
   let isLookDragging = false;
@@ -85,6 +104,7 @@ if (canvas) {
   let suppressTouchTap = false;
   let transitionStart = 0;
   let transitionDuration = 380;
+  let allowCameraOutsideRoom = false;
   let settingsPanelOpen = false;
   let doorMenuOpen = false;
   let doorOpenTarget = 0;
@@ -99,6 +119,23 @@ if (canvas) {
   const transitionFromTarget = new THREE.Vector3();
   const doorReturnCamera = new THREE.Vector3();
   const doorReturnTarget = new THREE.Vector3();
+  const doorExitStartCamera = new THREE.Vector3();
+  const doorExitStartTarget = new THREE.Vector3();
+  const doorMenuCamera = new THREE.Vector3(2.75, 1.72, 0.24);
+  const doorMenuTarget = new THREE.Vector3(3.88, 1.52, 0.26);
+  const doorIntroCamera = new THREE.Vector3(4.18, 1.58, 0.32);
+  const doorIntroTarget = new THREE.Vector3(3.54, 1.54, 0.3);
+  let doorExitStartOpenAmount = 0;
+  let doorExitCameraCurve: THREE.CatmullRomCurve3 | null = null;
+  let doorExitTargetCurve: THREE.CatmullRomCurve3 | null = null;
+  const doorExitApproachCamera = new THREE.Vector3(3.22, 1.62, 0.34);
+  const doorExitApproachTarget = new THREE.Vector3(4.02, 1.54, 0.3);
+  const doorExitThresholdCamera = new THREE.Vector3(3.96, 1.58, 0.31);
+  const doorExitThresholdTarget = new THREE.Vector3(4.68, 1.54, 0.28);
+  const doorExitBeyondCamera = new THREE.Vector3(4.92, 1.58, 0.27);
+  const doorExitBeyondTarget = new THREE.Vector3(7.84, 1.54, 0.24);
+  const doorExitCamera = new THREE.Vector3(7.36, 1.58, 0.24);
+  const doorExitTarget = new THREE.Vector3(16.4, 1.54, 0.24);
   let doorPivot: THREE.Group | null = null;
   const cameraRoomBounds = {
     minX: -3.72,
@@ -618,7 +655,7 @@ if (canvas) {
     const openRoute = (route: string, label: string) => {
       terminalLines.push({ text: copy.opening(label), type: 'success' });
       renderTerminalTexture();
-      window.location.href = route;
+      navigateThroughDoor(route);
     };
 
     if (!command) {
@@ -1373,9 +1410,7 @@ if (canvas) {
   const applyStudioTheme = (theme: string) => {
     currentTheme = theme === 'light' ? 'light' : 'dark';
     const isLight = theme === 'light';
-    const background = isLight ? '#e4eef7' : '#050a12';
-    scene.background = new THREE.Color(background);
-    scene.fog = new THREE.Fog(background, isLight ? 10 : 8.5, isLight ? 22 : 18);
+    applySceneBackdrop();
     materials.ceiling.color.set(isLight ? '#f8fafc' : '#0a0f1a');
     materials.floor.color.set(isLight ? '#d0bea6' : '#8f7c66');
     const wallColor = isLight ? '#dfe9f2' : '#2b3440';
@@ -1506,6 +1541,10 @@ if (canvas) {
   const getVisibleInteractiveObjects = () => interactive.filter((object) => isVisibleInScene(object));
 
   const keepCameraInsideRoom = () => {
+    if (allowCameraOutsideRoom) {
+      return;
+    }
+
     camera.position.x = THREE.MathUtils.clamp(camera.position.x, cameraRoomBounds.minX, cameraRoomBounds.maxX);
     camera.position.y = THREE.MathUtils.clamp(camera.position.y, cameraRoomBounds.minY, cameraRoomBounds.maxY);
     camera.position.z = THREE.MathUtils.clamp(camera.position.z, cameraRoomBounds.minZ, cameraRoomBounds.maxZ);
@@ -2074,32 +2113,89 @@ if (canvas) {
     applyStudioLanguage((event as CustomEvent<string>).detail);
   });
 
-  const setCameraTarget = (target: string) => {
+  function applySceneBackdrop(blackout = false) {
+    if (blackout) {
+      scene.background = new THREE.Color('#000000');
+      scene.fog = new THREE.Fog('#000000', 6.5, 16);
+      return;
+    }
+
+    const background = currentTheme === 'light' ? '#e4eef7' : '#050a12';
+    scene.background = new THREE.Color(background);
+    scene.fog = new THREE.Fog(background, currentTheme === 'light' ? 10 : 8.5, currentTheme === 'light' ? 22 : 18);
+  }
+
+  const resetDoorExitState = () => {
+    doorExitStage = 'idle';
+    doorExitStageStart = 0;
+    doorExitOpenDuration = 0;
+    doorExitTravelDuration = 0;
+    doorExitBlackDuration = 0;
+    doorExitCameraCurve = null;
+    doorExitTargetCurve = null;
+    doorExitStartOpenAmount = 0;
+  };
+
+  const setRoomTransitionVisible = (visible: boolean, instant = false) => {
+    roomTransition?.classList.toggle('is-instant', instant);
+    roomTransition?.classList.toggle('is-hidden', !visible);
+  };
+
+  const scheduleRoomTransition = (visible: boolean, delay = 0, instant = false) => {
+    pendingRoomTransitionVisible = visible;
+    pendingRoomTransitionInstant = instant;
+    pendingRoomTransitionAt = performance.now() + delay;
+  };
+
+  const shouldNavigateThroughDoor = (href: string) => href === '/sobre-mi' || href === '/portfolio';
+
+  const beginCameraTransition = (
+    nextCamera: THREE.Vector3,
+    nextTarget: THREE.Vector3,
+    duration: number,
+    options: {
+      allowOutsideRoom?: boolean;
+      enableControlsOnFinish?: boolean;
+      entering?: boolean;
+    } = {},
+  ) => {
     controls.enabled = false;
-    isEnteringScreen = true;
+    isEnteringScreen = options.entering ?? false;
+    enableControlsOnTransitionEnd = options.enableControlsOnFinish ?? false;
+    allowCameraOutsideRoom = options.allowOutsideRoom ?? false;
+    resetDoorExitState();
     transitionStart = performance.now();
-    transitionDuration = 380;
+    transitionDuration = duration;
     transitionFromCamera.copy(camera.position);
     transitionFromTarget.copy(controls.target);
+    cameraGoal.copy(nextCamera);
+    targetGoal.copy(nextTarget);
+  };
+
+  const setCameraTarget = (target: string) => {
+    scheduleRoomTransition(false);
 
     if (target === 'projects') {
-      cameraGoal.set(-0.38, 1.84, -0.16);
-      targetGoal.set(-0.38, 1.82, -1.02);
+      beginCameraTransition(new THREE.Vector3(-0.38, 1.84, -0.16), new THREE.Vector3(-0.38, 1.82, -1.02), 380, {
+        entering: true,
+      });
       pendingPanel = 'projects';
       pendingPanelAt = transitionStart + transitionDuration + 90;
       return;
     }
 
     if (target === 'tech') {
-      cameraGoal.set(2.55, 3.5, -1.92);
-      targetGoal.set(2.55, 3.5, -2.78);
+      beginCameraTransition(new THREE.Vector3(2.55, 3.5, -1.92), new THREE.Vector3(2.55, 3.5, -2.78), 380, {
+        entering: true,
+      });
       pendingPanel = 'tech';
       pendingPanelAt = transitionStart + transitionDuration + 90;
       return;
     }
 
-    cameraGoal.set(1.25, 1.5, 0.36);
-    targetGoal.set(1.25, 1.5, -0.38);
+    beginCameraTransition(new THREE.Vector3(1.25, 1.5, 0.36), new THREE.Vector3(1.25, 1.5, -0.38), 380, {
+      entering: true,
+    });
     pendingPanel = 'contact';
     pendingPanelAt = transitionStart + transitionDuration + 90;
   };
@@ -2107,32 +2203,87 @@ if (canvas) {
   const resetCamera = () => {
     pendingPanel = null;
     pendingNavigationHref = null;
+    pendingNavigationAt = 0;
     pendingDoorMenuAt = 0;
     doorMenuOpen = false;
     doorOpenTarget = 0;
     doorMenu?.classList.remove('is-open');
     doorMenu?.setAttribute('aria-hidden', 'true');
-    isEnteringScreen = false;
-    transitionStart = performance.now();
-    transitionDuration = 520;
-    transitionFromCamera.copy(camera.position);
-    transitionFromTarget.copy(controls.target);
-    cameraGoal.copy(defaultCamera);
-    targetGoal.copy(defaultTarget);
+    resetDoorExitState();
+    applySceneBackdrop();
+    scheduleRoomTransition(false);
+    beginCameraTransition(defaultCamera, defaultTarget, 860, {
+      enableControlsOnFinish: true,
+    });
   };
 
   const enterScreenRoute = (href: string, screenX: number) => {
     pendingPanel = null;
     pendingNavigationHref = href;
-    controls.enabled = false;
-    isEnteringScreen = true;
-    transitionStart = performance.now();
-    transitionDuration = 760;
+    pendingNavigationAt = 0;
+    applySceneBackdrop();
+    scheduleRoomTransition(false);
+    beginCameraTransition(new THREE.Vector3(screenX, 1.82, -0.58), new THREE.Vector3(screenX, 1.82, -1.06), 760, {
+      entering: true,
+    });
     pendingNavigationAt = transitionStart + transitionDuration + 80;
-    transitionFromCamera.copy(camera.position);
-    transitionFromTarget.copy(controls.target);
-    cameraGoal.set(screenX, 1.82, -0.58);
-    targetGoal.set(screenX, 1.82, -1.06);
+  };
+
+  const navigateThroughDoor = (href: string) => {
+    pendingPanel = null;
+    pendingDoorMenuAt = 0;
+    pendingNavigationHref = href;
+    pendingNavigationAt = 0;
+    pendingRoomTransitionAt = 0;
+    doorMenuOpen = false;
+    doorMenu?.classList.remove('is-open');
+    doorMenu?.setAttribute('aria-hidden', 'true');
+    blurTerminal();
+    controls.enabled = false;
+    isEnteringScreen = false;
+    enableControlsOnTransitionEnd = false;
+    allowCameraOutsideRoom = true;
+    resetDoorExitState();
+    setRoomTransitionVisible(false, true);
+    applySceneBackdrop(true);
+    doorExitStartCamera.copy(camera.position);
+    doorExitStartTarget.copy(controls.target);
+    doorExitStartOpenAmount = doorOpenAmount;
+    doorOpenTarget = 1;
+    doorExitOpenDuration = doorExitStartOpenAmount >= 0.96 ? 240 : 1120;
+    doorExitTravelDuration = 2820;
+    doorExitBlackDuration = 320;
+    doorExitCameraCurve = new THREE.CatmullRomCurve3(
+      [
+        doorExitStartCamera.clone(),
+        doorExitApproachCamera.clone(),
+        doorExitThresholdCamera.clone(),
+        doorExitBeyondCamera.clone(),
+        doorExitCamera.clone(),
+      ],
+      false,
+      'centripetal',
+      0.45,
+    );
+    doorExitTargetCurve = new THREE.CatmullRomCurve3(
+      [
+        doorExitStartTarget.clone(),
+        doorExitApproachTarget.clone(),
+        doorExitThresholdTarget.clone(),
+        doorExitBeyondTarget.clone(),
+        doorExitTarget.clone(),
+      ],
+      false,
+      'centripetal',
+      0.45,
+    );
+    doorExitStage = 'open';
+    doorExitStageStart = performance.now();
+    try {
+      window.sessionStorage.setItem('studio-door-transition', '1');
+    } catch {
+      // Ignore storage errors and continue with the local transition.
+    }
   };
 
   const openDoorMenu = () => {
@@ -2143,19 +2294,74 @@ if (canvas) {
 
     pendingPanel = null;
     pendingNavigationHref = null;
-    pendingDoorMenuAt = 0;
+    pendingNavigationAt = 0;
+    pendingDoorMenuAt = performance.now() + 1180;
     doorMenuOpen = true;
     doorOpenTarget = 1;
+    blurTerminal();
+    resetDoorExitState();
+    applySceneBackdrop();
+    scheduleRoomTransition(false);
+    doorReturnCamera.copy(camera.position);
+    doorReturnTarget.copy(controls.target);
+    beginCameraTransition(doorMenuCamera, doorMenuTarget, 920, {
+      entering: true,
+    });
     doorMenu?.classList.remove('is-open');
     doorMenu?.setAttribute('aria-hidden', 'true');
   };
 
   const closeDoorMenu = () => {
     pendingDoorMenuAt = 0;
+    pendingNavigationHref = null;
+    pendingNavigationAt = 0;
     doorMenuOpen = false;
     doorOpenTarget = 0;
     doorMenu?.classList.remove('is-open');
     doorMenu?.setAttribute('aria-hidden', 'true');
+    resetDoorExitState();
+    applySceneBackdrop();
+    scheduleRoomTransition(false);
+    beginCameraTransition(
+      doorReturnCamera.lengthSq() ? doorReturnCamera : defaultCamera,
+      doorReturnTarget.lengthSq() ? doorReturnTarget : defaultTarget,
+      920,
+      {
+        enableControlsOnFinish: true,
+      },
+    );
+  };
+
+  const startDoorIntro = () => {
+    if (hasStartedDoorIntro) {
+      return;
+    }
+
+    hasStartedDoorIntro = true;
+    controls.enabled = false;
+    isEnteringScreen = false;
+    enableControlsOnTransitionEnd = false;
+    resetDoorExitState();
+    pendingPanel = null;
+    pendingNavigationHref = null;
+    pendingNavigationAt = 0;
+    pendingDoorMenuAt = 0;
+    doorMenuOpen = false;
+    allowCameraOutsideRoom = true;
+    applySceneBackdrop();
+    setRoomTransitionVisible(true, true);
+    doorIntroOverlayReleased = false;
+    doorOpenAmount = 1;
+    doorOpenTarget = 1;
+    if (doorPivot) {
+      doorPivot.rotation.y = -doorOpenAmount * 2.05;
+    }
+    camera.position.copy(doorIntroCamera);
+    controls.target.copy(doorIntroTarget);
+    cameraGoal.copy(doorIntroCamera);
+    targetGoal.copy(doorIntroTarget);
+    doorIntroStage = 'black';
+    doorIntroStageStart = performance.now();
   };
 
   const updatePointer = (event: PointerEvent) => {
@@ -2318,6 +2524,11 @@ if (canvas) {
     const href = hit?.object.userData.href;
     if (typeof href === 'string') {
       blurTerminal();
+      if (shouldNavigateThroughDoor(href)) {
+        navigateThroughDoor(href);
+        return;
+      }
+
       if (typeof hit?.object.userData.screenX === 'number') {
         enterScreenRoute(href, hit.object.userData.screenX);
         return;
@@ -2502,8 +2713,82 @@ if (canvas) {
     materials.projectsScreen.emissiveIntensity = 0.82 + Math.sin(elapsed * 2.1) * 0.14;
     materials.contactScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.6 + 1.2) * 0.14;
     materials.techScreen.emissiveIntensity = 0.80 + Math.sin(elapsed * 2.3 + 0.5) * 0.14;
-    const doorOpenSpeed = doorOpenTarget > doorOpenAmount ? 2.15 : 4.8;
-    doorOpenAmount = THREE.MathUtils.lerp(doorOpenAmount, doorOpenTarget, Math.min(1, delta * doorOpenSpeed));
+    const now = performance.now();
+    const isDoorIntroActive = doorIntroStage !== 'idle';
+    const isDoorExitActive = doorExitStage !== 'idle';
+    const isDoorIntroClosing = allowCameraOutsideRoom && enableControlsOnTransitionEnd && doorOpenTarget < doorOpenAmount;
+
+    if (doorIntroStage === 'black') {
+      doorOpenAmount = 1;
+      camera.position.copy(doorIntroCamera);
+      controls.target.copy(doorIntroTarget);
+      if (now - doorIntroStageStart >= 900) {
+        doorIntroStage = 'enter';
+        doorIntroStageStart = now;
+      }
+    } else if (doorIntroStage === 'enter') {
+      const progress = Math.min(1, (now - doorIntroStageStart) / 4200);
+      const eased = THREE.MathUtils.smootherstep(progress, 0, 1);
+      doorOpenAmount = 1;
+      camera.position.lerpVectors(doorIntroCamera, defaultCamera, eased);
+      controls.target.lerpVectors(doorIntroTarget, defaultTarget, eased);
+      if (!doorIntroOverlayReleased && progress >= 0.32) {
+        setRoomTransitionVisible(false, true);
+        doorIntroOverlayReleased = true;
+      }
+      if (progress >= 1) {
+        camera.position.copy(defaultCamera);
+        controls.target.copy(defaultTarget);
+        doorIntroStage = 'close';
+        doorIntroStageStart = now;
+        doorOpenTarget = 0;
+        allowCameraOutsideRoom = false;
+      }
+    } else if (doorIntroStage === 'close') {
+      const progress = Math.min(1, (now - doorIntroStageStart) / 1200);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      doorOpenAmount = 1 - eased;
+      camera.position.copy(defaultCamera);
+      controls.target.copy(defaultTarget);
+      if (progress >= 1) {
+        doorOpenAmount = 0;
+        doorIntroStage = 'idle';
+        controls.enabled = true;
+        cameraGoal.copy(defaultCamera);
+        targetGoal.copy(defaultTarget);
+      }
+    } else if (doorExitStage === 'open') {
+      const progress = Math.min(1, (now - doorExitStageStart) / Math.max(1, doorExitOpenDuration));
+      const eased = THREE.MathUtils.smootherstep(progress, 0, 1);
+      doorOpenAmount = THREE.MathUtils.lerp(doorExitStartOpenAmount, 1, eased);
+      camera.position.copy(doorExitStartCamera);
+      controls.target.copy(doorExitStartTarget);
+      if (progress >= 1) {
+        doorOpenAmount = 1;
+        doorExitStage = 'travel';
+        doorExitStageStart = now;
+      }
+    } else if (doorExitStage === 'travel') {
+      const progress = Math.min(1, (now - doorExitStageStart) / Math.max(1, doorExitTravelDuration));
+      const eased = THREE.MathUtils.smootherstep(progress, 0, 1);
+      doorOpenAmount = 1;
+      doorExitCameraCurve?.getPoint(eased, camera.position);
+      doorExitTargetCurve?.getPoint(eased, controls.target);
+      if (progress >= 1) {
+        setRoomTransitionVisible(true, true);
+        doorExitStage = 'black';
+        doorExitStageStart = now;
+        pendingNavigationAt = now + doorExitBlackDuration;
+      }
+    } else if (doorExitStage === 'black') {
+      doorOpenAmount = 1;
+      doorExitCameraCurve?.getPoint(1, camera.position);
+      doorExitTargetCurve?.getPoint(1, controls.target);
+    } else {
+      const doorOpenSpeed = doorOpenTarget > doorOpenAmount ? 2.15 : isDoorIntroClosing ? 0.82 : 4.8;
+      doorOpenAmount = THREE.MathUtils.lerp(doorOpenAmount, doorOpenTarget, Math.min(1, delta * doorOpenSpeed));
+    }
+
     if (doorPivot) {
       doorPivot.rotation.y = -doorOpenAmount * 2.05;
     }
@@ -2545,13 +2830,19 @@ if (canvas) {
       }
     }
 
-    if (isEnteringScreen || !controls.enabled) {
-      const progress = Math.min(1, (performance.now() - transitionStart) / transitionDuration);
+    if (isDoorIntroActive || isDoorExitActive) {
+      cameraGoal.copy(camera.position);
+      targetGoal.copy(controls.target);
+    } else if (isEnteringScreen || !controls.enabled) {
+      const progress = Math.min(1, (now - transitionStart) / transitionDuration);
       const eased = 1 - Math.pow(1 - progress, 3);
       camera.position.lerpVectors(transitionFromCamera, cameraGoal, eased);
       controls.target.lerpVectors(transitionFromTarget, targetGoal, eased);
-      if (!isEnteringScreen && progress >= 1) {
+
+      if (enableControlsOnTransitionEnd && progress >= 1) {
         controls.enabled = true;
+        enableControlsOnTransitionEnd = false;
+        allowCameraOutsideRoom = false;
       }
     } else {
       camera.position.lerp(cameraGoal, Math.min(1, delta * 2.4));
@@ -2570,9 +2861,10 @@ if (canvas) {
       pendingPanel = null;
     }
 
-    if (pendingNavigationHref && performance.now() >= pendingNavigationAt) {
+    if (pendingNavigationHref && pendingNavigationAt > 0 && performance.now() >= pendingNavigationAt) {
       window.location.href = pendingNavigationHref;
       pendingNavigationHref = null;
+      pendingNavigationAt = 0;
     }
 
     if (pendingDoorMenuAt && performance.now() >= pendingDoorMenuAt) {
@@ -2581,10 +2873,21 @@ if (canvas) {
       pendingDoorMenuAt = 0;
     }
 
+    if (pendingRoomTransitionAt && performance.now() >= pendingRoomTransitionAt) {
+      setRoomTransitionVisible(pendingRoomTransitionVisible, pendingRoomTransitionInstant);
+      pendingRoomTransitionAt = 0;
+    }
+
     renderer.render(scene, camera);
     if (!hasShownFirstFrame) {
       hasShownFirstFrame = true;
-      requestAnimationFrame(() => loadingScreen?.classList.add('is-hidden'));
+      requestAnimationFrame(() => {
+        const remainingLoaderTime = Math.max(0, minimumLoaderDuration - (performance.now() - bootStartedAt));
+        window.setTimeout(() => {
+          startDoorIntro();
+          loadingScreen?.classList.add('is-hidden');
+        }, remainingLoaderTime);
+      });
     }
     requestAnimationFrame(animate);
   };
@@ -2592,6 +2895,16 @@ if (canvas) {
   window.addEventListener('resize', resize);
   window.addEventListener('studio:exit-screen', resetCamera);
   doorMenuRoom?.addEventListener('click', closeDoorMenu);
+  doorMenuLinks.forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      const href = link.getAttribute('href');
+      if (!href) {
+        return;
+      }
+      navigateThroughDoor(href);
+    });
+  });
   resize();
   animate();
 }

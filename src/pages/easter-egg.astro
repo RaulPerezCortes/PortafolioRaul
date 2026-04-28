@@ -7,6 +7,24 @@ import '../styles/global.css';
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
     <title>Easter egg | Portafolio</title>
+    <script is:inline>
+      try {
+        if (sessionStorage.getItem('studio-door-transition') === '1') {
+          document.documentElement.dataset.doorTransition = '1';
+          sessionStorage.removeItem('studio-door-transition');
+        }
+      } catch {}
+    </script>
+    <style is:inline>
+      html[data-door-transition="1"],
+      html[data-door-transition="1"] body {
+        background: #000 !important;
+      }
+
+      html[data-door-transition="1"] body > * {
+        visibility: hidden !important;
+      }
+    </style>
   </head>
   <body class="content-page easter-page">
     <main class="content-shell">
@@ -20,5 +38,14 @@ import '../styles/global.css';
         </article>
       </section>
     </main>
+    <script is:inline>
+      if (document.documentElement.dataset.doorTransition === '1') {
+        window.addEventListener('load', () => {
+          window.setTimeout(() => {
+            delete document.documentElement.dataset.doorTransition;
+          }, 260);
+        }, { once: true });
+      }
+    </script>
   </body>
 </html>

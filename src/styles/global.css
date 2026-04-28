@@ -54,6 +54,26 @@ body.content-page {
     var(--bg);
 }
 
+body.content-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: #000;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.32s ease,
+    visibility 0s linear 0.32s;
+}
+
+html[data-door-transition="1"] body.content-page::before {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
+}
+
 .content-shell {
   width: min(1120px, calc(100% - 2rem));
   margin: 0 auto;
@@ -277,12 +297,10 @@ body.content-page {
 .room-loader {
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: 32;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at 50% 44%, rgb(34 211 238 / 0.13), transparent 32%),
-    linear-gradient(180deg, #050a12, #080a0f);
+  background: #000;
   color: #f8fafc;
   opacity: 1;
   pointer-events: auto;
@@ -295,6 +313,31 @@ body.content-page {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+
+.room-transition {
+  position: absolute;
+  inset: 0;
+  z-index: 31;
+  background: #000;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+  transition:
+    opacity 0.82s ease,
+    visibility 0s linear;
+}
+
+.room-transition.is-instant {
+  transition: none;
+}
+
+.room-transition.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.82s ease,
+    visibility 0s linear 0.82s;
 }
 
 .room-loader-inner {
