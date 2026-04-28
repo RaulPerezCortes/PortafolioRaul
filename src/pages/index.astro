@@ -23,11 +23,23 @@ import '../styles/global.css';
         </div>
         <div class="room-transition is-hidden" data-room-transition aria-hidden="true"></div>
         <aside class="controls-help" aria-label="Controles de la habitacion">
-          <p class="controls-help-title" data-i18n="controls.title">Controles</p>
-          <ul>
-            <li><span data-i18n="controls.rotate.action">Click + arrastrar</span><strong data-i18n="controls.rotate.result">Rotar camara</strong></li>
-            <li><span data-i18n="controls.zoom.action">Rueda / pellizcar</span><strong data-i18n="controls.zoom.result">Moverte con zoom</strong></li>
-          </ul>
+          <span class="control-hint" aria-label="Mover vista hacia los lados" title="Mover hacia los lados">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M8 7 3 12l5 5" />
+              <path d="M16 7l5 5-5 5" />
+              <path d="M4 12h16" />
+            </svg>
+            <span data-i18n="controls.move.short">Mover vista</span>
+          </span>
+          <span class="control-hint" aria-label="Zoom" title="Zoom">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m15.5 15.5 5 5" />
+              <path d="M10.5 7.5v6" />
+              <path d="M7.5 10.5h6" />
+            </svg>
+            <span data-i18n="controls.zoom.short">Hacer zoom</span>
+          </span>
         </aside>
         <aside class="door-menu" data-door-menu aria-hidden="true">
           <div class="door-menu-inner">

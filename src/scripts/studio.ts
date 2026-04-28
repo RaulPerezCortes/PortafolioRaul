@@ -2412,6 +2412,15 @@ if (canvas) {
     targetGoal.copy(controls.target);
   };
 
+  const setCanvasCursor = (state: 'drag' | 'grabbing' | 'click') => {
+    const cursors = {
+      drag: 'var(--cursor-drag), grab',
+      grabbing: 'var(--cursor-grabbing), grabbing',
+      click: 'var(--cursor-click), pointer',
+    };
+    canvas.style.cursor = cursors[state];
+  };
+
   canvas.addEventListener('wheel', moveCameraTowardPointer, { passive: false, capture: true });
 
   canvas.addEventListener('pointermove', (event) => {
@@ -2440,7 +2449,7 @@ if (canvas) {
       hoveredObject = nextHover;
     }
 
-    canvas.style.cursor = nextHover ? 'pointer' : 'grab';
+    setCanvasCursor(isLookDragging ? 'grabbing' : nextHover ? 'click' : 'drag');
   });
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -2472,6 +2481,7 @@ if (canvas) {
       isLookDragging = true;
       lookDragX = event.clientX;
       lookDragY = event.clientY;
+      setCanvasCursor('grabbing');
       if (event.pointerType !== 'touch') {
         canvas.setPointerCapture(event.pointerId);
       }
@@ -2555,6 +2565,7 @@ if (canvas) {
     }
 
     isLookDragging = false;
+    setCanvasCursor(hoveredObject ? 'click' : 'drag');
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
@@ -2580,6 +2591,7 @@ if (canvas) {
     }
 
     isLookDragging = false;
+    setCanvasCursor(hoveredObject ? 'click' : 'drag');
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
